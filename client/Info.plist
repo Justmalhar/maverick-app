@@ -23,5 +23,12 @@
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
+    <key>UIAppFonts</key>
+    <array>
+        <string>MesloLGS NF Regular.ttf</string>
+        <string>MesloLGS NF Bold.ttf</string>
+        <string>MesloLGS NF Italic.ttf</string>
+        <string>MesloLGS NF Bold Italic.ttf</string>
+    </array>
 </dict>
 </plist>

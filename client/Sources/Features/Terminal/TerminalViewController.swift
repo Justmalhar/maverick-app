@@ -7,12 +7,25 @@ final class TerminalViewController: UIViewController {
     var onInput: ((Data) -> Void)?
     var onResize: ((Int, Int) -> Void)?
 
+    private var lastCols = 0
+    private var lastRows = 0
+
     override func viewDidLoad() {
         super.viewDidLoad()
         terminal = TerminalView(frame: view.bounds)
         terminal.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         terminal.terminalDelegate = self
         terminal.backgroundColor = .black
+
+        // Nerd Font with Powerline glyphs — bundled in the app.
+        // PostScript name (the family name minus spaces) is what UIFont needs.
+        if let font = UIFont(name: "MesloLGSNF-Regular", size: 12)
+            ?? UIFont(name: "MesloLGS NF", size: 12) {
+            terminal.font = font
+        } else {
+            terminal.font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        }
+
         view.addSubview(terminal)
     }
 
@@ -20,7 +33,11 @@ final class TerminalViewController: UIViewController {
         super.viewDidLayoutSubviews()
         let cols = terminal.getTerminal().cols
         let rows = terminal.getTerminal().rows
-        onResize?(cols, rows)
+        if cols != lastCols || rows != lastRows {
+            lastCols = cols
+            lastRows = rows
+            onResize?(cols, rows)
+        }
     }
 
     func feed(data: Data) {
@@ -54,7 +71,11 @@ extension TerminalViewController: TerminalViewDelegate {
     func scrolled(source: TerminalView, position: Double) {}
     func setTerminalTitle(source: TerminalView, title: String) {}
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-        onResize?(newCols, newRows)
+        if newCols != lastCols || newRows != lastRows {
+            lastCols = newCols
+            lastRows = newRows
+            onResize?(newCols, newRows)
+        }
     }
     func bell(source: TerminalView) {}
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}

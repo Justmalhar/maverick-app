@@ -45,7 +45,16 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
-    sources: client/Sources
+    sources:
+      - path: client/Sources
+      - path: client/Resources/Fonts/MesloLGS NF Regular.ttf
+        buildPhase: resources
+      - path: client/Resources/Fonts/MesloLGS NF Bold.ttf
+        buildPhase: resources
+      - path: client/Resources/Fonts/MesloLGS NF Italic.ttf
+        buildPhase: resources
+      - path: client/Resources/Fonts/MesloLGS NF Bold Italic.ttf
+        buildPhase: resources
     dependencies:
       - package: SwiftTerm
       - package: MaverickProtocol
