@@ -38,6 +38,8 @@ targets:
     dependencies:
       - target: MaverickAgent
       - package: MaverickProtocol
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
 
   MaverickRemote:
     type: application
@@ -59,6 +61,8 @@ targets:
     dependencies:
       - target: MaverickRemote
       - package: MaverickProtocol
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   MaverickAgent:
