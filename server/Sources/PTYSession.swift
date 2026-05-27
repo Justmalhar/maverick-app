@@ -26,7 +26,18 @@ final class PTYSession: @unchecked Sendable {
 
         if childPid == 0 {
             let shell = info.shell
-            execl(shell, shell, "-l", nil as UnsafePointer<CChar>?)
+            // execv is non-variadic; safe to call from Swift.
+            // argv must be a null-terminated array of C strings.
+            shell.withCString { shellPtr in
+                "-l".withCString { loginFlag in
+                    var argv: [UnsafeMutablePointer<CChar>?] = [
+                        strdup(shellPtr),
+                        strdup(loginFlag),
+                        nil
+                    ]
+                    _ = execv(shellPtr, &argv)
+                }
+            }
             _exit(1)
         }
 
@@ -86,10 +97,17 @@ final class PTYSession: @unchecked Sendable {
 
     func terminate() {
         if childPid > 0 {
-            kill(childPid, SIGTERM)
-            var status: Int32 = 0
-            _ = waitpid(childPid, &status, 0)
+            let pid = childPid
             childPid = -1
+            kill(pid, SIGTERM)
+            // Async escalation to SIGKILL if SIGTERM is ignored.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+                var status: Int32 = 0
+                if waitpid(pid, &status, WNOHANG) == 0 {
+                    kill(pid, SIGKILL)
+                    _ = waitpid(pid, &status, 0)
+                }
+            }
         }
         source?.cancel()
     }
