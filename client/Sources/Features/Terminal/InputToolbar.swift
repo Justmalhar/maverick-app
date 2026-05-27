@@ -17,13 +17,13 @@ struct InputToolbar: View {
                 .buttonStyle(.bordered)
             Button("Tab")  { terminalVC.sendTab();  ctrlLatched = false }
                 .buttonStyle(.bordered)
-            Button("↑")  { terminalVC.sendArrow("[A]"); ctrlLatched = false }
+            Button("↑")  { terminalVC.sendArrow("[A"); ctrlLatched = false }
                 .buttonStyle(.bordered)
-            Button("↓")  { terminalVC.sendArrow("[B]"); ctrlLatched = false }
+            Button("↓")  { terminalVC.sendArrow("[B"); ctrlLatched = false }
                 .buttonStyle(.bordered)
-            Button("←")  { terminalVC.sendArrow("[D]"); ctrlLatched = false }
+            Button("←")  { terminalVC.sendArrow("[D"); ctrlLatched = false }
                 .buttonStyle(.bordered)
-            Button("→")  { terminalVC.sendArrow("[C]"); ctrlLatched = false }
+            Button("→")  { terminalVC.sendArrow("[C"); ctrlLatched = false }
                 .buttonStyle(.bordered)
             Button("^C") { terminalVC.sendCtrlC(); ctrlLatched = false }
                 .foregroundStyle(.red)
