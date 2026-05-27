@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsSheet: View {
     @Environment(AppSettings.self) var settings
     @Environment(ThemeStore.self) var themeStore
+    @Environment(ConnectionManager.self) var connection
     @Environment(\.dismiss) var dismiss
     @State private var draftKey: String = ""
 
@@ -14,6 +15,7 @@ struct SettingsSheet: View {
                 Theme.backgroundGradient.ignoresSafeArea()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
+                        serverSection
                         themeSection
                         voiceSection
                         aboutSection
@@ -35,6 +37,58 @@ struct SettingsSheet: View {
     }
 
     // MARK: - Sections
+
+    private var serverSection: some View {
+        sectionContainer(title: "Server", subtitle: "Tap Switch Server to disconnect and pick a different Mac.") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .fill(connection.state == .connected ? Theme.success.opacity(0.18) : Theme.danger.opacity(0.18))
+                            .frame(width: 32, height: 32)
+                        Image(systemName: connection.state == .connected ? "wifi" : "wifi.slash")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(connection.state == .connected ? Theme.success : Theme.danger)
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(currentHostDisplay)
+                            .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Theme.textPrimary)
+                            .lineLimit(1)
+                        Text(connection.state == .connected ? "Connected" : "Disconnected")
+                            .font(.system(size: 11))
+                            .foregroundStyle(connection.state == .connected ? Theme.success : Theme.textSecondary)
+                    }
+                    Spacer()
+                }
+
+                Button {
+                    connection.disconnect()
+                    dismiss()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Switch Server")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundStyle(Theme.textPrimary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.white.opacity(0.06)))
+                    .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var currentHostDisplay: String {
+        let host = UserDefaults.standard.string(forKey: "lastHost") ?? "—"
+        let port = UserDefaults.standard.integer(forKey: "lastPort")
+        if host == "—" { return "—" }
+        return port == 0 ? host : "\(host):\(port)"
+    }
 
     private var themeSection: some View {
         sectionContainer(title: "Terminal Theme", subtitle: "Affects only the terminal colors. UI chrome stays monochrome.") {

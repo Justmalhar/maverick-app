@@ -6,6 +6,7 @@ struct SessionsListView: View {
     @Environment(SessionStore.self) var store
     @Environment(ConnectionManager.self) var connection
     @Environment(SessionHistory.self) var history
+    @Environment(TaskLauncher.self) var launcher
 
     @Binding var path: NavigationPath
     @Binding var showSettings: Bool
@@ -26,15 +27,6 @@ struct SessionsListView: View {
                 Button { showSettings = true } label: {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 16, weight: .semibold))
-                }
-                .tint(Theme.textSecondary)
-            }
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    connection.disconnect()
-                } label: {
-                    Image(systemName: "power")
-                        .font(.system(size: 15, weight: .semibold))
                 }
                 .tint(Theme.textSecondary)
             }
@@ -59,6 +51,7 @@ struct SessionsListView: View {
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                TaskComposerCard()
                 activeSection
                 previousSection
                 Spacer(minLength: 100)
@@ -67,6 +60,12 @@ struct SessionsListView: View {
             .padding(.top, 8)
         }
         .scrollDismissesKeyboard(.interactively)
+        .onChange(of: launcher.launchedSessionId) { _, newValue in
+            guard let newValue else { return }
+            path.append(newValue)
+            // Reset so subsequent launches re-trigger.
+            DispatchQueue.main.async { launcher.launchedSessionId = nil }
+        }
     }
 
     private var activeSection: some View {
