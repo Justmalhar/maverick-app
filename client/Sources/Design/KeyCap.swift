@@ -19,25 +19,16 @@ struct KeyCap: View {
                 .frame(minWidth: minWidth, minHeight: 34)
                 .padding(.horizontal, 8)
         }
-        .background(backgroundView)
-        .overlay(
-            Capsule().strokeBorder(borderColor, lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 1, x: 0, y: 1)
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var backgroundView: some View {
-        switch style {
-        case .latched:
-            Capsule().fill(Theme.accentGradient)
-        case .neutral, .primary, .danger:
-            ZStack {
-                Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(Color.white.opacity(0.04))
+        .background {
+            if style == .latched {
+                Capsule().fill(Theme.accentGradient)
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 0.8))
+                    .shadow(color: Color.white.opacity(0.18), radius: 6, x: 0, y: 0)
+            } else {
+                Color.clear.liquidGlassCapsule()
             }
         }
+        .buttonStyle(.plain)
     }
 
     private var textColor: Color {
@@ -46,13 +37,6 @@ struct KeyCap: View {
         case .primary: return Theme.accent
         case .danger:  return Theme.danger
         case .latched: return .black
-        }
-    }
-
-    private var borderColor: Color {
-        switch style {
-        case .neutral, .primary, .danger: return Theme.stroke
-        case .latched: return .white.opacity(0.4)
         }
     }
 }

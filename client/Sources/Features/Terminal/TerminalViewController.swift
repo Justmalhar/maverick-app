@@ -54,9 +54,12 @@ final class TerminalViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Bring up the keyboard immediately so the user can start typing
-        // without an extra tap. SwiftTerm's TerminalView is first-responder-eligible.
-        _ = terminal.becomeFirstResponder()
+        // Defer to the next runloop AND give layout a beat — SwiftUI's
+        // navigation push hasn't fully settled at viewDidAppear, so calling
+        // becomeFirstResponder right here is often a no-op.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            _ = self?.terminal.becomeFirstResponder()
+        }
     }
 
     func focusInput() {

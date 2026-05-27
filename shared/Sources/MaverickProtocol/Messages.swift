@@ -9,6 +9,7 @@ private enum ClientMessageType: String, Codable {
     case resize
     case closeSession = "close_session"
     case uploadFile = "upload_file"
+    case listDirectory = "list_directory"
 }
 
 private enum ServerMessageType: String, Codable {
@@ -20,6 +21,8 @@ private enum ServerMessageType: String, Codable {
     case error
     case fileUploaded = "file_uploaded"
     case fileUploadFailed = "file_upload_failed"
+    case directoryListing = "directory_listing"
+    case directoryListingFailed = "directory_listing_failed"
 }
 
 public enum ClientMessage: Codable, Sendable {
@@ -35,8 +38,12 @@ public enum ClientMessage: Codable, Sendable {
     /// `data` is base64-encoded file bytes. Server replies with .fileUploaded.
     case uploadFile(uploadId: UUID, filename: String, data: String)
 
+    /// Request a directory listing for the folder picker UI. `path` may be
+    /// nil (home), `~`, `~/foo`, or an absolute path.
+    case listDirectory(requestId: UUID, path: String?)
+
     private enum ClientCodingKeys: String, CodingKey {
-        case type, name, shell, sessionId, data, cols, rows, uploadId, filename, cwd
+        case type, name, shell, sessionId, data, cols, rows, uploadId, filename, cwd, requestId, path
     }
 
     public init(from decoder: Decoder) throws {
@@ -72,6 +79,11 @@ public enum ClientMessage: Codable, Sendable {
                 filename: try container.decode(String.self, forKey: .filename),
                 data: try container.decode(String.self, forKey: .data)
             )
+        case .listDirectory:
+            self = .listDirectory(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                path: try container.decodeIfPresent(String.self, forKey: .path)
+            )
         }
     }
 
@@ -105,6 +117,10 @@ public enum ClientMessage: Codable, Sendable {
             try container.encode(uploadId, forKey: .uploadId)
             try container.encode(filename, forKey: .filename)
             try container.encode(data, forKey: .data)
+        case .listDirectory(let requestId, let path):
+            try container.encode(ClientMessageType.listDirectory, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encodeIfPresent(path, forKey: .path)
         }
     }
 }
@@ -118,9 +134,11 @@ public enum ServerMessage: Codable, Sendable {
     case error(message: String)
     case fileUploaded(uploadId: UUID, path: String)
     case fileUploadFailed(uploadId: UUID, message: String)
+    case directoryListing(requestId: UUID, path: String, entries: [DirectoryEntry])
+    case directoryListingFailed(requestId: UUID, message: String)
 
     private enum ServerCodingKeys: String, CodingKey {
-        case type, sessions, session, sessionId, data, message, uploadId, path
+        case type, sessions, session, sessionId, data, message, uploadId, path, requestId, entries
     }
 
     public init(from decoder: Decoder) throws {
@@ -153,6 +171,17 @@ public enum ServerMessage: Codable, Sendable {
         case .fileUploadFailed:
             self = .fileUploadFailed(
                 uploadId: try container.decode(UUID.self, forKey: .uploadId),
+                message: try container.decode(String.self, forKey: .message)
+            )
+        case .directoryListing:
+            self = .directoryListing(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                path: try container.decode(String.self, forKey: .path),
+                entries: try container.decode([DirectoryEntry].self, forKey: .entries)
+            )
+        case .directoryListingFailed:
+            self = .directoryListingFailed(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
                 message: try container.decode(String.self, forKey: .message)
             )
         }
@@ -188,6 +217,15 @@ public enum ServerMessage: Codable, Sendable {
         case .fileUploadFailed(let uploadId, let message):
             try container.encode(ServerMessageType.fileUploadFailed, forKey: .type)
             try container.encode(uploadId, forKey: .uploadId)
+            try container.encode(message, forKey: .message)
+        case .directoryListing(let requestId, let path, let entries):
+            try container.encode(ServerMessageType.directoryListing, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(path, forKey: .path)
+            try container.encode(entries, forKey: .entries)
+        case .directoryListingFailed(let requestId, let message):
+            try container.encode(ServerMessageType.directoryListingFailed, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
             try container.encode(message, forKey: .message)
         }
     }

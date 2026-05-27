@@ -11,10 +11,13 @@ struct MicButton: View {
     var body: some View {
         Button(action: tap) {
             ZStack {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                Circle()
-                    .strokeBorder(borderColor, lineWidth: 1)
+                Color.clear.liquidGlassCircle()
+                if recorder.state == .recording {
+                    Circle().strokeBorder(Theme.danger.opacity(0.7), lineWidth: 1)
+                        .shadow(color: Theme.danger.opacity(0.5), radius: 8)
+                } else if recorder.state == .transcribing {
+                    Circle().strokeBorder(Theme.accent.opacity(0.7), lineWidth: 1)
+                }
 
                 switch recorder.state {
                 case .idle, .error:
@@ -22,7 +25,6 @@ struct MicButton: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(settings.hasDeepgramKey ? Theme.textPrimary : Theme.textTertiary)
                 case .recording:
-                    // Pulsing red circle scaled by audio level
                     Circle()
                         .fill(Theme.danger)
                         .frame(width: 22 + CGFloat(recorder.level) * 18,
@@ -34,7 +36,6 @@ struct MicButton: View {
                 }
             }
             .frame(width: 50, height: 50)
-            .shadow(color: shadowColor, radius: 10)
         }
         .buttonStyle(.plain)
         .alert("Deepgram API Key Required", isPresented: $showKeyPrompt) {

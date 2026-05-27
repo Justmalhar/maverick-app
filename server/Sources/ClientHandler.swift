@@ -8,14 +8,16 @@ final class ClientHandler: @unchecked Sendable {
     private let connection: NWConnection
     private let sessionManager: SessionManager
     private let uploadStore: UploadStore
+    private let listingService: DirectoryListingService
     private var attachedSessionId: UUID?
     let onDisconnect: () -> Void
 
-    init(id: UUID, connection: NWConnection, sessionManager: SessionManager, uploadStore: UploadStore, onDisconnect: @escaping () -> Void) {
+    init(id: UUID, connection: NWConnection, sessionManager: SessionManager, uploadStore: UploadStore, listingService: DirectoryListingService, onDisconnect: @escaping () -> Void) {
         self.id = id
         self.connection = connection
         self.sessionManager = sessionManager
         self.uploadStore = uploadStore
+        self.listingService = listingService
         self.onDisconnect = onDisconnect
     }
 
@@ -78,6 +80,14 @@ final class ClientHandler: @unchecked Sendable {
                 send(.fileUploaded(uploadId: uploadId, path: path))
             } catch {
                 send(.fileUploadFailed(uploadId: uploadId, message: error.localizedDescription))
+            }
+
+        case .listDirectory(let requestId, let path):
+            do {
+                let result = try listingService.list(path: path)
+                send(.directoryListing(requestId: requestId, path: result.path, entries: result.entries))
+            } catch {
+                send(.directoryListingFailed(requestId: requestId, message: error.localizedDescription))
             }
         }
     }

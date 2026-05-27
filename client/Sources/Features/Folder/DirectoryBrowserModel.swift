@@ -1,0 +1,123 @@
+// client/Sources/Features/Folder/DirectoryBrowserModel.swift
+import Foundation
+import Observation
+import MaverickProtocol
+
+/// Drives the directory picker sheet. Sends `list_directory` requests over the
+/// WebSocket, correlates server replies by requestId, and caches the most
+/// recent listings client-side so back-navigation feels instant.
+///
+/// Caching strategy:
+///   - Bounded LRU (max 64 paths, ~4KB each) — total ~256KB worst case.
+///   - 30s TTL — entries older than that are refetched on view.
+///   - Two-layer: server already caches (10s); client caches (30s). Even a
+///     stale-but-displayed list refreshes in the background on focus.
+@Observable
+final class DirectoryBrowserModel {
+    enum State: Equatable { case idle, loading, loaded, error(String) }
+
+    /// Current absolute path being shown.
+    private(set) var currentPath: String = ""
+
+    /// Entries for currentPath (filtered to hide dot files by default).
+    private(set) var entries: [DirectoryEntry] = []
+
+    /// Loading state for the visible path.
+    private(set) var state: State = .idle
+
+    /// Toggle to include `.git`, `.zshrc`, etc.
+    var showHidden: Bool = false { didSet { recomputeFiltered() } }
+
+    private var allEntries: [DirectoryEntry] = []
+    private var pendingRequest: UUID?
+    private var cache = LRUCache<String, CacheEntry>(capacity: 64)
+
+    private struct CacheEntry {
+        let path: String
+        let entries: [DirectoryEntry]
+        let timestamp: Date
+    }
+
+    private static let ttl: TimeInterval = 30
+
+    /// Loads the given path. nil = home. If a fresh cache hit exists we
+    /// surface it immediately and skip the WebSocket round-trip.
+    func navigate(to path: String?, connection: ConnectionManager) {
+        let normalized = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = (normalized?.isEmpty == false ? normalized! : "~")
+
+        // Cache hit?
+        if let hit = cache.value(forKey: key),
+           Date().timeIntervalSince(hit.timestamp) < Self.ttl {
+            currentPath = hit.path
+            allEntries = hit.entries
+            recomputeFiltered()
+            state = .loaded
+            return
+        }
+
+        state = .loading
+        let req = UUID()
+        pendingRequest = req
+        connection.send(.listDirectory(requestId: req, path: normalized))
+    }
+
+    /// Convenience for going up one level.
+    func navigateUp(connection: ConnectionManager) {
+        let parent = (currentPath as NSString).deletingLastPathComponent
+        navigate(to: parent.isEmpty ? "/" : parent, connection: connection)
+    }
+
+    func handle(_ message: ServerMessage) {
+        switch message {
+        case .directoryListing(let reqId, let path, let entries):
+            guard reqId == pendingRequest else { return }
+            pendingRequest = nil
+            currentPath = path
+            allEntries = entries
+            cache.set(value: CacheEntry(path: path, entries: entries, timestamp: Date()), forKey: path)
+            recomputeFiltered()
+            state = .loaded
+        case .directoryListingFailed(let reqId, let msg):
+            guard reqId == pendingRequest else { return }
+            pendingRequest = nil
+            state = .error(msg)
+        default: break
+        }
+    }
+
+    private func recomputeFiltered() {
+        entries = showHidden ? allEntries : allEntries.filter { !$0.isHidden }
+    }
+}
+
+// MARK: - Tiny LRU
+
+final class LRUCache<Key: Hashable, Value> {
+    private let capacity: Int
+    private var dict: [Key: Value] = [:]
+    private var order: [Key] = []
+
+    init(capacity: Int) { self.capacity = capacity }
+
+    func value(forKey key: Key) -> Value? {
+        guard let v = dict[key] else { return nil }
+        // Bump recency
+        if let idx = order.firstIndex(of: key) {
+            order.remove(at: idx)
+            order.append(key)
+        }
+        return v
+    }
+
+    func set(value: Value, forKey key: Key) {
+        if dict[key] != nil {
+            order.removeAll { $0 == key }
+        } else if order.count >= capacity, let oldest = order.first {
+            order.removeFirst()
+            dict.removeValue(forKey: oldest)
+        }
+        dict[key] = value
+        order.append(key)
+    }
+}

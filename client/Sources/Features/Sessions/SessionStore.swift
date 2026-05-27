@@ -33,6 +33,9 @@ final class SessionStore {
         case .fileUploaded, .fileUploadFailed:
             // Handled by AttachmentManager.
             break
+        case .directoryListing, .directoryListingFailed:
+            // Handled by DirectoryBrowserModel.
+            break
         }
     }
 

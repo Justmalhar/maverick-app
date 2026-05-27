@@ -23,8 +23,12 @@ struct CursorPad: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Theme.surface)
-            Circle().strokeBorder(activeDirection != nil ? Theme.accent : Theme.stroke, lineWidth: 1)
+            Color.clear.liquidGlassCircle()
+            if activeDirection != nil {
+                Circle()
+                    .strokeBorder(Theme.accent.opacity(0.6), lineWidth: 1)
+                    .shadow(color: Theme.accent.opacity(0.4), radius: 6)
+            }
 
             // Directional ticks
             VStack {

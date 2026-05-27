@@ -7,12 +7,12 @@ struct TaskComposerCard: View {
     @Environment(TaskLauncher.self) var launcher
     @Environment(AppSettings.self) var settings
     @Environment(AttachmentManager.self) var attachments
+    @Environment(DirectoryBrowserModel.self) var browser
 
     @State private var task: String = ""
     @State private var agent: CodingAgent = .claudeCode
     @State private var showFilePicker = false
-    @State private var showFolderEditor = false
-    @State private var folderDraft: String = ""
+    @State private var showFolderBrowser = false
     @State private var lastError: String?
     @FocusState private var focused: Bool
 
@@ -55,13 +55,7 @@ struct TaskComposerCard: View {
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(Theme.stroke, lineWidth: 0.5)
-        )
+        .liquidGlassSurface(cornerRadius: 20, elevation: 0.6)
         .fileImporter(
             isPresented: $showFilePicker,
             allowedContentTypes: [.item],
@@ -74,18 +68,13 @@ struct TaskComposerCard: View {
         } message: {
             Text(lastError ?? "")
         }
-        .alert("Working Directory", isPresented: $showFolderEditor) {
-            TextField("e.g. ~/Documents/project (default: ~)", text: $folderDraft)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            Button("Save") {
-                settings.lastWorkingDir = folderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            Button("Use Home", role: .cancel) {
-                settings.lastWorkingDir = ""
-            }
-        } message: {
-            Text("Sessions launched from here will start in this folder on your Mac. Leave blank to use your home directory.")
+        .sheet(isPresented: $showFolderBrowser) {
+            DirectoryBrowserSheet(
+                onSelect: { path in
+                    settings.lastWorkingDir = path
+                },
+                initialPath: settings.lastWorkingDir.isEmpty ? nil : settings.lastWorkingDir
+            )
         }
     }
 
@@ -131,40 +120,55 @@ struct TaskComposerCard: View {
             Image(systemName: "paperclip")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.textSecondary)
-                .frame(width: 38, height: 38)
-                .background(Circle().fill(Color.white.opacity(0.06)))
-                .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 0.5))
+                .frame(width: 40, height: 40)
         }
         .buttonStyle(.plain)
+        .background { Color.clear.liquidGlassCircle() }
     }
 
+    /// Folder button: pure icon when the user hasn't set a custom folder
+    /// (default = home). Capsule pill with last-2-path-components when they have.
+    @ViewBuilder
     private var folderChip: some View {
+        let cwd = settings.lastWorkingDir.trimmingCharacters(in: .whitespacesAndNewlines)
         Button {
-            folderDraft = settings.lastWorkingDir
-            showFolderEditor = true
+            showFolderBrowser = true
         } label: {
-            HStack(spacing: 6) {
+            if cwd.isEmpty {
                 Image(systemName: "folder")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                Text(folderLabel)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 90)
+                    .frame(width: 40, height: 40)
+                    .background { Color.clear.liquidGlassCircle() }
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                    Text(Self.shortPath(cwd))
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background { Color.clear.liquidGlassCapsule() }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(Capsule().fill(Color.white.opacity(0.06)))
-            .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
     }
 
-    private var folderLabel: String {
-        let cwd = settings.lastWorkingDir.trimmingCharacters(in: .whitespacesAndNewlines)
-        return cwd.isEmpty ? "~" : cwd
+    /// Returns the last two non-empty path components of `path`, joined with /.
+    /// `/Users/foo/projects/maverick/client` → `maverick/client`.
+    /// `/Users/foo` → `~`.
+    static func shortPath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "~" || trimmed.isEmpty { return "~" }
+        let comps = trimmed.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        // Treat /Users/<user> as ~
+        if comps.count == 2 && comps[0] == "Users" { return "~" }
+        let tail = comps.suffix(2)
+        return tail.joined(separator: "/")
     }
 
     private var agentPicker: some View {
