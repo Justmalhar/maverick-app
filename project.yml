@@ -6,6 +6,11 @@ options:
     iOS: "17.0"
   createIntermediateGroups: true
 
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CODE_SIGN_STYLE: Automatic
+
 packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
