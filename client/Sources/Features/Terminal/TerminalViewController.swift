@@ -9,6 +9,7 @@ final class TerminalViewController: UIViewController {
 
     private var lastCols = 0
     private var lastRows = 0
+    private var pendingTheme: AppTheme?
 
     private static let terminalInset = UIEdgeInsets(top: 10, left: 12, bottom: 8, right: 12)
 
@@ -33,6 +34,12 @@ final class TerminalViewController: UIViewController {
         }
 
         view.addSubview(terminal)
+
+        // Apply any theme set before the view was loaded.
+        if let pendingTheme {
+            apply(theme: pendingTheme)
+            self.pendingTheme = nil
+        }
     }
 
     override func viewWillLayoutSubviews() {
@@ -57,8 +64,17 @@ final class TerminalViewController: UIViewController {
     }
 
     /// Applies the active app theme to the SwiftTerm view (background, foreground,
-    /// cursor, and the 16-color ANSI palette).
+    /// cursor, and the 16-color ANSI palette). Safe to call before the view is
+    /// loaded — the theme is then applied during viewDidLoad.
     func applyTheme(_ theme: AppTheme) {
+        guard isViewLoaded, terminal != nil else {
+            pendingTheme = theme
+            return
+        }
+        apply(theme: theme)
+    }
+
+    private func apply(theme: AppTheme) {
         let bg = UIColor(hex: theme.terminal.background)
         let fg = UIColor(hex: theme.terminal.foreground)
         let cursor = UIColor(hex: theme.terminal.cursor ?? theme.terminal.foreground)
