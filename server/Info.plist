@@ -12,5 +12,11 @@
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Maverick accepts WebSocket connections from MaverickRemote on your iPhone.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_maverick._tcp</string>
+    </array>
 </dict>
 </plist>

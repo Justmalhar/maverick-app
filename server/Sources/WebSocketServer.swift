@@ -30,9 +30,7 @@ final class WebSocketServer {
             self?.accept(conn)
         }
         listener?.stateUpdateHandler = { state in
-            if case .failed(let err) = state {
-                print("[MaverickAgent] listener failed: \(err)")
-            }
+            NSLog("[MaverickAgent] listener state: %@", String(describing: state))
         }
         listener?.start(queue: .global())
 
