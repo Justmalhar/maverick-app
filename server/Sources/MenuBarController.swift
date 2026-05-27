@@ -17,7 +17,7 @@ final class MenuBarController: NSObject {
         do {
             try server?.start()
         } catch {
-            statusItem?.button?.title = "⚠"
+            statusItem?.button?.title = "⚠ \(error.localizedDescription)"
         }
     }
 
