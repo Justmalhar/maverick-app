@@ -22,17 +22,7 @@ struct SessionsListView: View {
             content
             floatingActionButton
         }
-        .navigationTitle("Sessions")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showSettings = true } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .tint(Theme.textSecondary)
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .alert("New Session", isPresented: $showNewSession) {
             TextField("Name (e.g. claude, build, logs)", text: $newName)
                 .textInputAutocapitalization(.never)
@@ -56,22 +46,41 @@ struct SessionsListView: View {
 
     private var content: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 22) {
+                header
                 TaskComposerCard()
                 activeSection
                 previousSection
-                Spacer(minLength: 100)
+                Spacer(minLength: 110)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 18)
             .padding(.top, 8)
         }
         .scrollDismissesKeyboard(.interactively)
         .onChange(of: launcher.launchedSessionId) { _, newValue in
             guard let newValue else { return }
             path.append(newValue)
-            // Reset so subsequent launches re-trigger.
             DispatchQueue.main.async { launcher.launchedSessionId = nil }
         }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Sessions")
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+            Spacer()
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(Color.white.opacity(0.06)))
+                    .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 4)
     }
 
     private var activeSection: some View {

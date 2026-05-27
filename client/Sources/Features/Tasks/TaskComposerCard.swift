@@ -17,10 +17,10 @@ struct TaskComposerCard: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             header
 
-            // Bigger multi-line task input.
+            // Bigger multi-line task input — feels like a proper chat composer.
             TextField(
                 "Describe what you want the agent to do…",
                 text: $task,
@@ -30,35 +30,36 @@ struct TaskComposerCard: View {
             .focused($focused)
             .font(.system(size: 15))
             .foregroundStyle(Theme.textPrimary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color.white.opacity(0.04))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(focused ? Theme.accent.opacity(0.5) : Theme.stroke, lineWidth: focused ? 1 : 0.5)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(focused ? Theme.accent.opacity(0.6) : Theme.stroke, lineWidth: focused ? 1 : 0.5)
             )
 
             if !attachments.attachments.isEmpty {
                 attachmentChips
             }
 
-            HStack(spacing: 8) {
-                attachButton
+            // Order: folder, agent picker on the left | attach + send arrow on the right
+            HStack(spacing: 10) {
                 folderChip
                 agentPicker
-                Spacer()
-                runButton
+                Spacer(minLength: 8)
+                attachButton
+                sendButton
             }
         }
-        .padding(14)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.surface)
+            RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surface)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(Theme.stroke, lineWidth: 0.5)
         )
         .fileImporter(
@@ -128,9 +129,9 @@ struct TaskComposerCard: View {
             showFilePicker = true
         } label: {
             Image(systemName: "paperclip")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: 36, height: 36)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 38, height: 38)
                 .background(Circle().fill(Color.white.opacity(0.06)))
                 .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 0.5))
         }
@@ -142,19 +143,20 @@ struct TaskComposerCard: View {
             folderDraft = settings.lastWorkingDir
             showFolderEditor = true
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 11, weight: .semibold))
+            HStack(spacing: 6) {
+                Image(systemName: "folder")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
                 Text(folderLabel)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(maxWidth: 110)
+                    .frame(maxWidth: 90)
             }
-            .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(Capsule().fill(Color.white.opacity(0.04)))
+            .background(Capsule().fill(Color.white.opacity(0.06)))
             .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
@@ -199,22 +201,19 @@ struct TaskComposerCard: View {
         .menuOrder(.fixed)
     }
 
-    private var runButton: some View {
+    private var sendButton: some View {
         Button(action: submit) {
-            HStack(spacing: 6) {
+            Group {
                 if attachments.anyUploading {
                     ProgressView().tint(Theme.onAccent)
                 } else {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 16, weight: .bold))
                 }
-                Text(attachments.anyUploading ? "Uploading…" : "Run")
-                    .font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(Theme.onAccent)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
-            .background(Capsule().fill(Theme.accent))
+            .frame(width: 40, height: 40)
+            .background(Circle().fill(Theme.accent))
         }
         .buttonStyle(.plain)
         .disabled(disableSubmit)
