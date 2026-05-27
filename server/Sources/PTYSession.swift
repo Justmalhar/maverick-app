@@ -18,6 +18,7 @@ final class PTYSession: @unchecked Sendable {
     }
 
     func start() throws {
+        guard masterFd < 0 else { return }
         var ws = winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
         var master: Int32 = 0
         childPid = forkpty(&master, nil, nil, &ws)
@@ -26,7 +27,7 @@ final class PTYSession: @unchecked Sendable {
         if childPid == 0 {
             let shell = info.shell
             execl(shell, shell, "-l", nil as UnsafePointer<CChar>?)
-            exit(1)
+            _exit(1)
         }
 
         masterFd = master
@@ -40,6 +41,11 @@ final class PTYSession: @unchecked Sendable {
         var buf = [UInt8](repeating: 0, count: 4096)
         let n = read(masterFd, &buf, buf.count)
         guard n > 0 else {
+            if childPid > 0 {
+                var status: Int32 = 0
+                _ = waitpid(childPid, &status, WNOHANG)
+                childPid = -1
+            }
             source?.cancel()
             onExit?()
             return
@@ -79,7 +85,12 @@ final class PTYSession: @unchecked Sendable {
     }
 
     func terminate() {
-        if childPid > 0 { kill(childPid, SIGTERM) }
+        if childPid > 0 {
+            kill(childPid, SIGTERM)
+            var status: Int32 = 0
+            _ = waitpid(childPid, &status, 0)
+            childPid = -1
+        }
         source?.cancel()
     }
 
