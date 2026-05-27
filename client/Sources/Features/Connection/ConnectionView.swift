@@ -4,42 +4,182 @@ import SwiftUI
 struct ConnectionView: View {
     @Environment(ConnectionManager.self) var connection
     @State private var host = UserDefaults.standard.string(forKey: "lastHost") ?? ""
-    @State private var port = UserDefaults.standard.integer(forKey: "lastPort") == 0
-        ? "8765"
-        : String(UserDefaults.standard.integer(forKey: "lastPort"))
+    @State private var port: String = {
+        let p = UserDefaults.standard.integer(forKey: "lastPort")
+        return p == 0 ? "8765" : String(p)
+    }()
     @State private var token = ""
+    @FocusState private var focused: Field?
+
+    private enum Field { case host, port, token }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Mac Address (Tailscale)") {
-                    TextField("hostname or IP", text: $host)
+        ZStack {
+            Theme.backgroundGradient.ignoresSafeArea()
+            // Subtle radial glow in the top-left
+            RadialGradient(
+                colors: [Theme.accent.opacity(0.18), .clear],
+                center: .topLeading, startRadius: 20, endRadius: 380
+            )
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
+            ScrollView {
+                VStack(spacing: 28) {
+                    hero
+                    formCard
+                    connectButton
+                    if let err = connection.lastError, connection.state != .connecting {
+                        Text(err)
+                            .font(.caption)
+                            .foregroundStyle(Theme.danger)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
+                    }
+                    Spacer(minLength: 30)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 48)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Pieces
+
+    private var hero: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Theme.accentGradient)
+                    .frame(width: 76, height: 76)
+                    .shadow(color: Theme.accent.opacity(0.4), radius: 18, x: 0, y: 8)
+                Image(systemName: "terminal.fill")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundStyle(.black.opacity(0.85))
+            }
+            Text("Maverick")
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+            Text("Your Mac's terminal, in your pocket.")
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    private var formCard: some View {
+        VStack(spacing: 14) {
+            LabeledField(
+                icon: "network",
+                label: "Mac Address",
+                placeholder: "100.x.x.x or hostname.ts.net",
+                text: $host,
+                keyboardType: .URL
+            )
+            .focused($focused, equals: .host)
+            .submitLabel(.next)
+            .onSubmit { focused = .port }
+
+            LabeledField(
+                icon: "number",
+                label: "Port",
+                placeholder: "8765",
+                text: $port,
+                keyboardType: .numberPad
+            )
+            .focused($focused, equals: .port)
+
+            LabeledField(
+                icon: "key.fill",
+                label: "Token (optional)",
+                placeholder: "shared secret if configured",
+                text: $token,
+                secure: true
+            )
+            .focused($focused, equals: .token)
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Theme.stroke, lineWidth: 1)
+        )
+    }
+
+    private var connectButton: some View {
+        Button {
+            focused = nil
+            connection.connect(
+                host: host.trimmingCharacters(in: .whitespacesAndNewlines),
+                port: Int(port) ?? 8765,
+                token: token
+            )
+        } label: {
+            HStack(spacing: 8) {
+                if connection.state == .connecting {
+                    ProgressView().tint(.black)
+                }
+                Text(connection.state == .connecting ? "Connecting…" : "Connect")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(
+                Capsule().fill(Theme.accentGradient)
+            )
+            .shadow(color: Theme.accent.opacity(0.4), radius: 14, x: 0, y: 6)
+        }
+        .buttonStyle(.plain)
+        .disabled(host.isEmpty || connection.state == .connecting)
+        .opacity((host.isEmpty || connection.state == .connecting) ? 0.6 : 1)
+    }
+}
+
+private struct LabeledField: View {
+    let icon: String
+    let label: String
+    let placeholder: String
+    @Binding var text: String
+    var keyboardType: UIKeyboardType = .default
+    var secure: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(Theme.textSecondary)
+
+            Group {
+                if secure {
+                    SecureField(placeholder, text: $text)
+                } else {
+                    TextField(placeholder, text: $text)
+                        .keyboardType(keyboardType)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    TextField("Port", text: $port)
-                        .keyboardType(.numberPad)
-                }
-                Section("Auth (optional)") {
-                    SecureField("Token", text: $token)
-                }
-                Section {
-                    Button("Connect") {
-                        connection.connect(
-                            host: host,
-                            port: Int(port) ?? 8765,
-                            token: token
-                        )
-                    }
-                    .disabled(host.isEmpty || connection.state == .connecting)
-                    if connection.state == .connecting {
-                        HStack { Spacer(); ProgressView("Connecting…"); Spacer() }
-                    }
-                    if let err = connection.lastError {
-                        Text(err).foregroundStyle(.red).font(.caption)
-                    }
                 }
             }
-            .navigationTitle("Maverick")
+            .font(.system(size: 15, weight: .medium, design: .monospaced))
+            .foregroundStyle(Theme.textPrimary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.stroke, lineWidth: 1)
+            )
         }
     }
 }

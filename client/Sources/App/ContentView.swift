@@ -23,18 +23,43 @@ struct ContentView: View {
 
     var body: some View {
         if connection.state == .connected {
-            NavigationSplitView {
-                SessionListView()
-            } detail: {
+            connectedView
+        } else {
+            ConnectionView()
+        }
+    }
+
+    private var connectedView: some View {
+        ZStack {
+            Theme.backgroundGradient.ignoresSafeArea()
+            VStack(spacing: 0) {
+                SessionTabBar()
                 if let id = store.activeSessionId {
                     TerminalWithToolbarView(sessionId: id)
                         .id(id)
                 } else {
-                    ContentUnavailableView("No Session", systemImage: "terminal", description: Text("Tap + to create a session"))
+                    emptyState
                 }
             }
-        } else {
-            ConnectionView()
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 14) {
+            Spacer()
+            Image(systemName: "terminal")
+                .font(.system(size: 48, weight: .light))
+                .foregroundStyle(Theme.textTertiary)
+            Text("No active session")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+            Text("Tap + above to create a new shell session on your Mac.")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Spacer()
         }
     }
 }
