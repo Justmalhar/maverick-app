@@ -7,6 +7,7 @@ struct TerminalContainerView: UIViewControllerRepresentable {
     let terminalVC: TerminalViewController
     @Environment(SessionStore.self) var store
     @Environment(ConnectionManager.self) var connection
+    @Environment(ThemeStore.self) var themeStore
 
     func makeUIViewController(context: Context) -> TerminalViewController {
         terminalVC.onInput = { data in
@@ -19,8 +20,13 @@ struct TerminalContainerView: UIViewControllerRepresentable {
             terminalVC.feed(data: data)
         }
         connection.send(.attachSession(sessionId: sessionId))
+        // Apply initial theme.
+        terminalVC.applyTheme(themeStore.current)
         return terminalVC
     }
 
-    func updateUIViewController(_ uiViewController: TerminalViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: TerminalViewController, context: Context) {
+        // Re-apply theme on theme switch.
+        uiViewController.applyTheme(themeStore.current)
+    }
 }

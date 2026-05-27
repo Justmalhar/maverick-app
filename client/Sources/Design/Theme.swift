@@ -1,30 +1,45 @@
 // client/Sources/Design/Theme.swift
 import SwiftUI
 
+/// Static UI chrome palette — pure monochrome (Maverick Dark style).
+/// The terminal's own colors are theme-swappable via ThemeStore; UI chrome stays neutral.
 enum Theme {
-    // Background gradient stops
-    static let bgTop    = Color(red: 0.05, green: 0.07, blue: 0.11)
-    static let bgBottom = Color(red: 0.09, green: 0.06, blue: 0.14)
+    // Backgrounds
+    static let bg          = Color(hex: "#000000")
+    static let bgElevated  = Color(hex: "#0a0a0a")
+    static let surface     = Color(hex: "#0d0d10")
+    static let surfaceHi   = Color(hex: "#18181b")
 
-    static let surface  = Color.white.opacity(0.05)
-    static let stroke   = Color.white.opacity(0.10)
-    static let strokeStrong = Color.white.opacity(0.18)
-
-    // Accents
-    static let accent          = Color(red: 0.20, green: 0.85, blue: 0.65) // mint
-    static let accentSecondary = Color(red: 0.45, green: 0.70, blue: 1.00) // periwinkle
-    static let danger          = Color(red: 1.00, green: 0.40, blue: 0.45)
+    // Strokes
+    static let stroke         = Color.white.opacity(0.10)
+    static let strokeStrong   = Color.white.opacity(0.20)
 
     // Text
-    static let textPrimary   = Color.white
-    static let textSecondary = Color.white.opacity(0.65)
-    static let textTertiary  = Color.white.opacity(0.40)
+    static let textPrimary   = Color(hex: "#fafafa")
+    static let textSecondary = Color(hex: "#a1a1aa")
+    static let textTertiary  = Color(hex: "#52525b")
 
-    // Gradients
+    // Accent: white on dark, single point of contrast
+    static let accent        = Color(hex: "#fafafa")
+    static let onAccent      = Color(hex: "#000000")
+
+    // Status
+    static let danger        = Color(hex: "#f87171")
+    static let success       = Color(hex: "#4ade80")
+
+    // Background fill (subtle vertical gradient — barely there)
     static var backgroundGradient: LinearGradient {
-        LinearGradient(colors: [bgTop, bgBottom], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(
+            colors: [Color(hex: "#050505"), Color(hex: "#000000")],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
     }
+
+    // Accent gradient (used on prominent buttons)
     static var accentGradient: LinearGradient {
-        LinearGradient(colors: [accent, Color(red: 0.15, green: 0.70, blue: 0.85)], startPoint: .leading, endPoint: .trailing)
+        LinearGradient(
+            colors: [Color(hex: "#fafafa"), Color(hex: "#d4d4d8")],
+            startPoint: .top, endPoint: .bottom
+        )
     }
 }

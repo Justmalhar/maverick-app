@@ -56,6 +56,29 @@ final class TerminalViewController: UIViewController {
         onInput?(data)
     }
 
+    /// Applies the active app theme to the SwiftTerm view (background, foreground,
+    /// cursor, and the 16-color ANSI palette).
+    func applyTheme(_ theme: AppTheme) {
+        let bg = UIColor(hex: theme.terminal.background)
+        let fg = UIColor(hex: theme.terminal.foreground)
+        let cursor = UIColor(hex: theme.terminal.cursor ?? theme.terminal.foreground)
+
+        terminal.backgroundColor = bg
+        view.backgroundColor = bg
+        terminal.nativeBackgroundColor = bg
+        terminal.nativeForegroundColor = fg
+        terminal.caretColor = cursor
+
+        let ansi = theme.terminal.ansi16.map { hex -> SwiftTerm.Color in
+            let c = UIColor(hex: hex)
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            c.getRed(&r, green: &g, blue: &b, alpha: &a)
+            // SwiftTerm.Color uses 0...65535 16-bit components.
+            return SwiftTerm.Color(red: UInt16(r * 65535), green: UInt16(g * 65535), blue: UInt16(b * 65535))
+        }
+        terminal.installColors(ansi)
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let cols = terminal.getTerminal().cols
