@@ -8,6 +8,7 @@ final class WebSocketServer {
     private var clients: [UUID: ClientHandler] = [:]
     private let clientsLock = NSLock()
     private let sessionManager: SessionManager
+    private let uploadStore = UploadStore()
     private let port: UInt16
 
     var actualPort: UInt16? { listener?.port?.rawValue }
@@ -62,6 +63,7 @@ final class WebSocketServer {
             id: id,
             connection: connection,
             sessionManager: sessionManager,
+            uploadStore: uploadStore,
             onDisconnect: { [weak self] in self?.removeClient(id: id) }
         )
         clientsLock.lock()

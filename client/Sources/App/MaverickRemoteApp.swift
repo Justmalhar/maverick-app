@@ -9,6 +9,7 @@ struct MaverickRemoteApp: App {
     @State private var connectionHistory = ConnectionHistory()
     @State private var sessionHistory = SessionHistory()
     @State private var taskLauncher = TaskLauncher()
+    @State private var attachmentManager = AttachmentManager()
     @State private var settings = AppSettings()
     @State private var themeStore = ThemeStore()
 
@@ -24,14 +25,16 @@ struct MaverickRemoteApp: App {
                     .environment(connectionHistory)
                     .environment(sessionHistory)
                     .environment(taskLauncher)
+                    .environment(attachmentManager)
                     .environment(settings)
                     .environment(themeStore)
                     .task {
                         let connRef = connection
-                        connection.onMessage = { [weak store, weak sessionHistory, weak taskLauncher] msg in
+                        connection.onMessage = { [weak store, weak sessionHistory, weak taskLauncher, weak attachmentManager] msg in
                             store?.handle(msg)
                             sessionHistory?.handle(msg)
                             taskLauncher?.handle(msg, connection: connRef)
+                            attachmentManager?.handle(msg)
                         }
                         autoConnectIfPossible()
                         // Dismiss launch splash after a short delay.

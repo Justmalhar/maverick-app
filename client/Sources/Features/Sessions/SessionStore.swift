@@ -30,6 +30,9 @@ final class SessionStore {
             }
         case .error(let msg):
             print("[SessionStore] server error: \(msg)")
+        case .fileUploaded, .fileUploadFailed:
+            // Handled by AttachmentManager.
+            break
         }
     }
 

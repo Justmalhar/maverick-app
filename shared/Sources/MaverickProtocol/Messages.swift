@@ -8,6 +8,7 @@ private enum ClientMessageType: String, Codable {
     case input
     case resize
     case closeSession = "close_session"
+    case uploadFile = "upload_file"
 }
 
 private enum ServerMessageType: String, Codable {
@@ -17,6 +18,8 @@ private enum ServerMessageType: String, Codable {
     case scrollback
     case sessionClosed = "session_closed"
     case error
+    case fileUploaded = "file_uploaded"
+    case fileUploadFailed = "file_upload_failed"
 }
 
 public enum ClientMessage: Codable, Sendable {
@@ -26,9 +29,12 @@ public enum ClientMessage: Codable, Sendable {
     case input(sessionId: UUID, data: String)
     case resize(sessionId: UUID, cols: Int, rows: Int)
     case closeSession(sessionId: UUID)
+    /// Upload a file to the Mac's local /tmp so coding agents can reference it.
+    /// `data` is base64-encoded file bytes. Server replies with .fileUploaded.
+    case uploadFile(uploadId: UUID, filename: String, data: String)
 
     private enum ClientCodingKeys: String, CodingKey {
-        case type, name, shell, sessionId, data, cols, rows
+        case type, name, shell, sessionId, data, cols, rows, uploadId, filename
     }
 
     public init(from decoder: Decoder) throws {
@@ -57,6 +63,12 @@ public enum ClientMessage: Codable, Sendable {
             )
         case .closeSession:
             self = .closeSession(sessionId: try container.decode(UUID.self, forKey: .sessionId))
+        case .uploadFile:
+            self = .uploadFile(
+                uploadId: try container.decode(UUID.self, forKey: .uploadId),
+                filename: try container.decode(String.self, forKey: .filename),
+                data: try container.decode(String.self, forKey: .data)
+            )
         }
     }
 
@@ -84,6 +96,11 @@ public enum ClientMessage: Codable, Sendable {
         case .closeSession(let sessionId):
             try container.encode(ClientMessageType.closeSession, forKey: .type)
             try container.encode(sessionId, forKey: .sessionId)
+        case .uploadFile(let uploadId, let filename, let data):
+            try container.encode(ClientMessageType.uploadFile, forKey: .type)
+            try container.encode(uploadId, forKey: .uploadId)
+            try container.encode(filename, forKey: .filename)
+            try container.encode(data, forKey: .data)
         }
     }
 }
@@ -95,9 +112,11 @@ public enum ServerMessage: Codable, Sendable {
     case scrollback(sessionId: UUID, data: String)
     case sessionClosed(sessionId: UUID)
     case error(message: String)
+    case fileUploaded(uploadId: UUID, path: String)
+    case fileUploadFailed(uploadId: UUID, message: String)
 
     private enum ServerCodingKeys: String, CodingKey {
-        case type, sessions, session, sessionId, data, message
+        case type, sessions, session, sessionId, data, message, uploadId, path
     }
 
     public init(from decoder: Decoder) throws {
@@ -122,6 +141,16 @@ public enum ServerMessage: Codable, Sendable {
             self = .sessionClosed(sessionId: try container.decode(UUID.self, forKey: .sessionId))
         case .error:
             self = .error(message: try container.decode(String.self, forKey: .message))
+        case .fileUploaded:
+            self = .fileUploaded(
+                uploadId: try container.decode(UUID.self, forKey: .uploadId),
+                path: try container.decode(String.self, forKey: .path)
+            )
+        case .fileUploadFailed:
+            self = .fileUploadFailed(
+                uploadId: try container.decode(UUID.self, forKey: .uploadId),
+                message: try container.decode(String.self, forKey: .message)
+            )
         }
     }
 
@@ -147,6 +176,14 @@ public enum ServerMessage: Codable, Sendable {
             try container.encode(sessionId, forKey: .sessionId)
         case .error(let message):
             try container.encode(ServerMessageType.error, forKey: .type)
+            try container.encode(message, forKey: .message)
+        case .fileUploaded(let uploadId, let path):
+            try container.encode(ServerMessageType.fileUploaded, forKey: .type)
+            try container.encode(uploadId, forKey: .uploadId)
+            try container.encode(path, forKey: .path)
+        case .fileUploadFailed(let uploadId, let message):
+            try container.encode(ServerMessageType.fileUploadFailed, forKey: .type)
+            try container.encode(uploadId, forKey: .uploadId)
             try container.encode(message, forKey: .message)
         }
     }

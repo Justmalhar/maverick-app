@@ -7,13 +7,15 @@ final class ClientHandler: @unchecked Sendable {
     let id: UUID
     private let connection: NWConnection
     private let sessionManager: SessionManager
+    private let uploadStore: UploadStore
     private var attachedSessionId: UUID?
     let onDisconnect: () -> Void
 
-    init(id: UUID, connection: NWConnection, sessionManager: SessionManager, onDisconnect: @escaping () -> Void) {
+    init(id: UUID, connection: NWConnection, sessionManager: SessionManager, uploadStore: UploadStore, onDisconnect: @escaping () -> Void) {
         self.id = id
         self.connection = connection
         self.sessionManager = sessionManager
+        self.uploadStore = uploadStore
         self.onDisconnect = onDisconnect
     }
 
@@ -69,6 +71,14 @@ final class ClientHandler: @unchecked Sendable {
 
         case .closeSession(let sessionId):
             await sessionManager.closeSession(id: sessionId)
+
+        case .uploadFile(let uploadId, let filename, let data):
+            do {
+                let path = try uploadStore.save(filename: filename, base64Data: data)
+                send(.fileUploaded(uploadId: uploadId, path: path))
+            } catch {
+                send(.fileUploadFailed(uploadId: uploadId, message: error.localizedDescription))
+            }
         }
     }
 
