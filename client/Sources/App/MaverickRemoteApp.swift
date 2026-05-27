@@ -6,7 +6,8 @@ import UIKit
 struct MaverickRemoteApp: App {
     @State private var connection = ConnectionManager()
     @State private var store = SessionStore()
-    @State private var history = ConnectionHistory()
+    @State private var connectionHistory = ConnectionHistory()
+    @State private var sessionHistory = SessionHistory()
     @State private var settings = AppSettings()
     @State private var themeStore = ThemeStore()
 
@@ -15,13 +16,17 @@ struct MaverickRemoteApp: App {
             ContentView()
                 .environment(connection)
                 .environment(store)
-                .environment(history)
+                .environment(connectionHistory)
+                .environment(sessionHistory)
                 .environment(settings)
                 .environment(themeStore)
                 .task {
-                    // Wire output routing after @State is initialized by SwiftUI
-                    connection.onMessage = { [weak store] msg in
+                    // Wire output routing after @State is initialized by SwiftUI.
+                    // Fan out each server message to both the live store and
+                    // the persistent session history.
+                    connection.onMessage = { [weak store, weak sessionHistory] msg in
                         store?.handle(msg)
+                        sessionHistory?.handle(msg)
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in

@@ -1,12 +1,39 @@
 // client/Sources/App/ContentView.swift
 import SwiftUI
+import MaverickProtocol
 
-// Wrapper that owns the TerminalViewController so InputToolbar can reference it.
-struct TerminalWithToolbarView: View {
+struct ContentView: View {
+    @Environment(ConnectionManager.self) var connection
+    @Environment(SessionStore.self) var store
+
+    @State private var path = NavigationPath()
+    @State private var showSettings = false
+
+    var body: some View {
+        if connection.state == .connected {
+            NavigationStack(path: $path) {
+                SessionsListView(path: $path, showSettings: $showSettings)
+                    .navigationDestination(for: UUID.self) { sessionId in
+                        TerminalScreen(sessionId: sessionId)
+                    }
+            }
+            .preferredColorScheme(.dark)
+            .tint(Theme.accent)
+            .sheet(isPresented: $showSettings) { SettingsSheet() }
+        } else {
+            ConnectionView()
+        }
+    }
+}
+
+/// Single-session terminal screen pushed from the Sessions list.
+struct TerminalScreen: View {
     let sessionId: UUID
-    @State private var terminalVC = TerminalViewController()
     @Environment(SessionStore.self) var store
     @Environment(ConnectionManager.self) var connection
+    @Environment(\.dismiss) var dismiss
+
+    @State private var terminalVC = TerminalViewController()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,52 +41,33 @@ struct TerminalWithToolbarView: View {
                 .ignoresSafeArea(.keyboard)
             InputToolbar(terminalVC: terminalVC)
         }
-    }
-}
-
-struct ContentView: View {
-    @Environment(ConnectionManager.self) var connection
-    @Environment(SessionStore.self) var store
-
-    var body: some View {
-        if connection.state == .connected {
-            connectedView
-        } else {
-            ConnectionView()
-        }
-    }
-
-    private var connectedView: some View {
-        ZStack {
-            Theme.backgroundGradient.ignoresSafeArea()
-            VStack(spacing: 0) {
-                SessionTabBar()
-                if let id = store.activeSessionId {
-                    TerminalWithToolbarView(sessionId: id)
-                        .id(id)
-                } else {
-                    emptyState
+        .background(Theme.bg)
+        .navigationTitle(sessionName)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(role: .destructive) {
+                    connection.send(.closeSession(sessionId: sessionId))
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
                 }
+                .tint(Theme.danger)
             }
         }
-        .preferredColorScheme(.dark)
+        .onAppear {
+            store.activeSessionId = sessionId
+        }
+        .onChange(of: store.sessions) { _, newValue in
+            // If the active session disappears (server closed it), pop back.
+            if !newValue.contains(where: { $0.id == sessionId }) {
+                dismiss()
+            }
+        }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 14) {
-            Spacer()
-            Image(systemName: "terminal")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(Theme.textTertiary)
-            Text("No active session")
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundStyle(Theme.textPrimary)
-            Text("Tap + above to create a new shell session on your Mac.")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            Spacer()
-        }
+    private var sessionName: String {
+        store.sessions.first(where: { $0.id == sessionId })?.name ?? "Session"
     }
 }
