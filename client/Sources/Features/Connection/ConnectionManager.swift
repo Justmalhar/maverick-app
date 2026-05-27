@@ -55,6 +55,14 @@ final class ConnectionManager {
         let session = URLSession(configuration: .default)
         task = session.webSocketTask(with: url)
         task?.resume()
+        // URLSessionWebSocketTask doesn't expose a "connected" callback without
+        // a delegate, so mark connected optimistically right after resume.
+        // If the handshake actually fails, readLoop's failure branch will
+        // reset state and trigger reconnect with backoff.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.state == .connecting { self.state = .connected }
+        }
         readLoop()
     }
 
