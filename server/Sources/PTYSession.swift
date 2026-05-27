@@ -1,0 +1,91 @@
+// server/Sources/PTYSession.swift
+import Foundation
+import Darwin
+import MaverickProtocol
+
+final class PTYSession: @unchecked Sendable {
+    let info: SessionInfo
+    private var masterFd: Int32 = -1
+    private var childPid: pid_t = -1
+    private var source: DispatchSourceRead?
+    private var scrollback = CircularBuffer<UInt8>(capacity: 1_048_576) // 1MB
+    private let lock = NSLock()
+    private var observers: [(id: UUID, handler: (Data) -> Void)] = []
+    var onExit: (() -> Void)?
+
+    init(name: String, shell: String = "/bin/zsh") {
+        self.info = SessionInfo(name: name, shell: shell)
+    }
+
+    func start() throws {
+        var ws = winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
+        var master: Int32 = 0
+        childPid = forkpty(&master, nil, nil, &ws)
+        guard childPid >= 0 else { throw PTYError.forkFailed(errno) }
+
+        if childPid == 0 {
+            let shell = info.shell
+            execl(shell, shell, "-l", nil as UnsafePointer<CChar>?)
+            exit(1)
+        }
+
+        masterFd = master
+        source = DispatchSource.makeReadSource(fileDescriptor: masterFd, queue: .global())
+        source?.setEventHandler { [weak self] in self?.readOutput() }
+        source?.setCancelHandler { [weak self] in self?.closeFd() }
+        source?.resume()
+    }
+
+    private func readOutput() {
+        var buf = [UInt8](repeating: 0, count: 4096)
+        let n = read(masterFd, &buf, buf.count)
+        guard n > 0 else {
+            source?.cancel()
+            onExit?()
+            return
+        }
+        let data = Data(buf[0..<n])
+        lock.lock()
+        scrollback.append(contentsOf: buf[0..<n])
+        let obs = observers
+        lock.unlock()
+        obs.forEach { $0.handler(data) }
+    }
+
+    func write(_ data: Data) {
+        guard masterFd >= 0 else { return }
+        data.withUnsafeBytes { _ = Foundation.write(masterFd, $0.baseAddress, data.count) }
+    }
+
+    func resize(cols: UInt16, rows: UInt16) {
+        guard masterFd >= 0 else { return }
+        var ws = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
+        _ = ioctl(masterFd, TIOCSWINSZ, &ws)
+    }
+
+    func getScrollback() -> Data {
+        lock.lock(); defer { lock.unlock() }
+        return Data(scrollback.snapshot())
+    }
+
+    func addObserver(id: UUID, handler: @escaping (Data) -> Void) {
+        lock.lock(); defer { lock.unlock() }
+        observers.append((id: id, handler: handler))
+    }
+
+    func removeObserver(id: UUID) {
+        lock.lock(); defer { lock.unlock() }
+        observers.removeAll { $0.id == id }
+    }
+
+    func terminate() {
+        if childPid > 0 { kill(childPid, SIGTERM) }
+        source?.cancel()
+    }
+
+    private func closeFd() {
+        if masterFd >= 0 { close(masterFd); masterFd = -1 }
+    }
+
+    enum PTYError: Error { case forkFailed(Int32) }
+}
