@@ -16,6 +16,7 @@ struct SettingsSheet: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
                         serverSection
+                        agentsSection
                         themeSection
                         voiceSection
                         aboutSection
@@ -88,6 +89,27 @@ struct SettingsSheet: View {
         let port = UserDefaults.standard.integer(forKey: "lastPort")
         if host == "—" { return "—" }
         return port == 0 ? host : "\(host):\(port)"
+    }
+
+    private var agentsSection: some View {
+        @Bindable var settings = settings
+        return sectionContainer(
+            title: "Agent CLIs",
+            subtitle: "Override the binary each agent runs. Leave blank to use the default."
+        ) {
+            VStack(spacing: 12) {
+                ForEach(CodingAgent.allCases) { agent in
+                    AgentBinaryRow(
+                        agent: agent,
+                        defaultBinary: agent.defaultBinary,
+                        value: Binding(
+                            get: { settings.binary(for: agent) == agent.defaultBinary ? "" : settings.binary(for: agent) },
+                            set: { settings.setBinary($0, for: agent) }
+                        )
+                    )
+                }
+            }
+        }
     }
 
     private var themeSection: some View {
@@ -196,6 +218,33 @@ struct SettingsSheet: View {
                         .strokeBorder(Theme.stroke, lineWidth: 1)
                 )
         }
+    }
+}
+
+private struct AgentBinaryRow: View {
+    let agent: CodingAgent
+    let defaultBinary: String
+    @Binding var value: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AgentIcon(agent: agent, size: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(agent.rawValue)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                TextField(defaultBinary, text: $value)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Theme.textSecondary)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            Spacer()
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.03)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.stroke, lineWidth: 0.5))
     }
 }
 

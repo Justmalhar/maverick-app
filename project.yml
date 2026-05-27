@@ -57,12 +57,14 @@ targets:
         buildPhase: resources
       - path: client/Resources/Themes
         type: folder
+      - path: client/Resources/Agents.xcassets
     dependencies:
       - package: SwiftTerm
       - package: MaverickProtocol
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.malhar.MaverickRemote
       INFOPLIST_FILE: client/Info.plist
+      ASSETCATALOG_COMPILER_APPICON_NAME: ""
 
   MaverickRemoteTests:
     type: bundle.unit-test

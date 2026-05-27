@@ -117,9 +117,9 @@ struct ConnectionView: View {
     private var historySection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Image(systemName: "clock.arrow.circlepath")
+                Image(systemName: "server.rack")
                     .font(.system(size: 11, weight: .semibold))
-                Text("Recent")
+                Text("Saved Servers")
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
             }
@@ -128,19 +128,21 @@ struct ConnectionView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(history.hosts) { entry in
+                    ForEach(history.sortedByRecency) { entry in
                         Button {
                             host = entry.host
                             port = String(entry.port)
+                            if let t = entry.token { token = t }
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(entry.host)
-                                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                Text(entry.displayName)
+                                    .font(.system(size: 13, weight: .semibold, design: entry.name.isEmpty ? .monospaced : .rounded))
                                     .foregroundStyle(Theme.textPrimary)
                                     .lineLimit(1)
-                                Text(":\(entry.port)  •  \(entry.lastConnected, format: .relative(presentation: .named))")
+                                Text("\(entry.host):\(entry.port)  •  \(entry.lastConnected, format: .relative(presentation: .named))")
                                     .font(.system(size: 11))
                                     .foregroundStyle(Theme.textSecondary)
+                                    .lineLimit(1)
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
@@ -173,7 +175,7 @@ struct ConnectionView: View {
             focused = nil
             let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
             let intPort = Int(port) ?? 8765
-            history.record(host: cleanHost, port: intPort)
+            history.record(host: cleanHost, port: intPort, token: token.isEmpty ? nil : token)
             connection.connect(
                 host: cleanHost,
                 port: intPort,

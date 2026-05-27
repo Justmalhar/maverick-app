@@ -12,32 +12,52 @@ struct MaverickRemoteApp: App {
     @State private var settings = AppSettings()
     @State private var themeStore = ThemeStore()
 
+    @State private var showSplash = true
+    @State private var isInBackground = false
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(connection)
-                .environment(store)
-                .environment(connectionHistory)
-                .environment(sessionHistory)
-                .environment(taskLauncher)
-                .environment(settings)
-                .environment(themeStore)
-                .task {
-                    // Wire output routing after @State is initialized by SwiftUI.
-                    // Fan out each server message to live store, session history,
-                    // and the task launcher (which sends initial agent commands).
-                    let connRef = connection
-                    connection.onMessage = { [weak store, weak sessionHistory, weak taskLauncher] msg in
-                        store?.handle(msg)
-                        sessionHistory?.handle(msg)
-                        taskLauncher?.handle(msg, connection: connRef)
+            ZStack {
+                ContentView()
+                    .environment(connection)
+                    .environment(store)
+                    .environment(connectionHistory)
+                    .environment(sessionHistory)
+                    .environment(taskLauncher)
+                    .environment(settings)
+                    .environment(themeStore)
+                    .task {
+                        let connRef = connection
+                        connection.onMessage = { [weak store, weak sessionHistory, weak taskLauncher] msg in
+                            store?.handle(msg)
+                            sessionHistory?.handle(msg)
+                            taskLauncher?.handle(msg, connection: connRef)
+                        }
+                        autoConnectIfPossible()
+                        // Dismiss launch splash after a short delay.
+                        try? await Task.sleep(for: .seconds(1.5))
+                        withAnimation(.easeOut(duration: 0.4)) {
+                            showSplash = false
+                        }
                     }
-                    // Auto-connect on cold launch if a saved host exists.
-                    autoConnectIfPossible()
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                        isInBackground = false
+                        autoConnectIfPossible()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                        // Cover content before iOS takes the app-switcher snapshot.
+                        isInBackground = true
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                        isInBackground = false
+                    }
+
+                if showSplash || isInBackground {
+                    SplashScreenView()
+                        .transition(.opacity)
+                        .zIndex(1)
                 }
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-                    autoConnectIfPossible()
-                }
+            }
         }
     }
 

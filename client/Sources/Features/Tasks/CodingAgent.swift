@@ -1,49 +1,35 @@
 // client/Sources/Features/Tasks/CodingAgent.swift
 import Foundation
 
-enum CodingAgent: String, CaseIterable, Identifiable, Codable {
+enum CodingAgent: String, CaseIterable, Identifiable, Codable, Hashable {
     case claudeCode  = "Claude Code"
     case codex       = "Codex"
     case antigravity = "Antigravity"
     case opencode    = "OpenCode"
+    case hermes      = "Hermes Agent"
 
     var id: String { rawValue }
 
-    /// SF Symbol shown next to the agent name.
-    var iconName: String {
+    /// Name of the SVG asset in `Agents.xcassets`. The names match lobe-icons.
+    var assetName: String {
         switch self {
-        case .claudeCode:  return "sparkles"
-        case .codex:       return "chevron.left.forwardslash.chevron.right"
-        case .antigravity: return "arrow.up.forward.app.fill"
-        case .opencode:    return "curlybraces"
+        case .claudeCode:  return "claudecode"
+        case .codex:       return "codex"
+        case .antigravity: return "antigravity"
+        case .opencode:    return "opencode"
+        case .hermes:      return "hermesagent"
         }
     }
 
-    /// The CLI binary that the agent runs.
-    var binary: String {
+    /// Default CLI binary. Users can override this per-agent in Settings to
+    /// support custom installs (e.g. `clauded`, a wrapper, or an alias).
+    var defaultBinary: String {
         switch self {
         case .claudeCode:  return "claude"
         case .codex:       return "codex"
         case .antigravity: return "antigravity"
         case .opencode:    return "opencode"
+        case .hermes:      return "hermes"
         }
-    }
-
-    /// Builds the shell line that launches the agent with the given task.
-    /// Wraps the task in single quotes and escapes embedded single quotes
-    /// using the standard shell pattern: '\\''
-    func command(for task: String) -> String {
-        let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return binary }
-        let escaped = trimmed.replacingOccurrences(of: "'", with: "'\\''")
-        return "\(binary) '\(escaped)'"
-    }
-
-    /// Generates a short, human-readable session name from the task.
-    func sessionName(for task: String) -> String {
-        let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return rawValue }
-        let snippet = String(trimmed.prefix(28))
-        return "\(rawValue) — \(snippet)"
     }
 }
