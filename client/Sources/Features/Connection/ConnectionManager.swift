@@ -54,6 +54,10 @@ final class ConnectionManager {
         guard let url = URL(string: urlStr) else { state = .disconnected; return }
         let session = URLSession(configuration: .default)
         task = session.webSocketTask(with: url)
+        // Default is 1 MB; scrollback replays for long-running sessions easily
+        // exceed that. Bump to 16 MB so receives don't drop the connection with
+        // "Message too long".
+        task?.maximumMessageSize = 16 * 1024 * 1024
         task?.resume()
         // URLSessionWebSocketTask doesn't expose a "connected" callback without
         // a delegate, so mark connected optimistically right after resume.

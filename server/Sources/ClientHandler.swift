@@ -72,13 +72,24 @@ final class ClientHandler: @unchecked Sendable {
         }
     }
 
+    /// How much of the scrollback (in raw bytes) we replay to a freshly-attached
+    /// client. 256 KB ≈ 4–8 thousand lines, base64-encodes to ~340 KB which
+    /// stays comfortably under iOS's default WebSocket frame limit (1 MB).
+    private static let scrollbackReplayCap = 256 * 1024
+
     private func attach(sessionId: UUID) async {
         if let prev = attachedSessionId {
             await sessionManager.removeOutputObserver(sessionId: prev, clientId: id)
         }
         attachedSessionId = sessionId
         if let sb = await sessionManager.getScrollback(sessionId: sessionId), !sb.isEmpty {
-            send(.scrollback(sessionId: sessionId, data: sb.base64EncodedString()))
+            let trimmed: Data
+            if sb.count > Self.scrollbackReplayCap {
+                trimmed = Data(sb.suffix(Self.scrollbackReplayCap))
+            } else {
+                trimmed = sb
+            }
+            send(.scrollback(sessionId: sessionId, data: trimmed.base64EncodedString()))
         }
         let cid = id
         await sessionManager.addOutputObserver(sessionId: sessionId, clientId: cid) { [weak self] data in
