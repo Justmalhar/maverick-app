@@ -1,0 +1,70 @@
+name: Maverick
+options:
+  bundleIdPrefix: com.malhar
+  deploymentTarget:
+    macOS: "13.0"
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: "1.2.0"
+  MaverickProtocol:
+    path: shared
+
+targets:
+  MaverickAgent:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources: server/Sources
+    dependencies:
+      - package: MaverickProtocol
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.malhar.MaverickAgent
+      INFOPLIST_FILE: server/Info.plist
+
+  MaverickAgentTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources: server/Tests
+    dependencies:
+      - target: MaverickAgent
+      - package: MaverickProtocol
+
+  MaverickRemote:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: client/Sources
+    dependencies:
+      - package: SwiftTerm
+      - package: MaverickProtocol
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.malhar.MaverickRemote
+      INFOPLIST_FILE: client/Info.plist
+
+  MaverickRemoteTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: client/Tests
+    dependencies:
+      - target: MaverickRemote
+      - package: MaverickProtocol
+
+schemes:
+  MaverickAgent:
+    build:
+      targets:
+        MaverickAgent: all
+    test:
+      targets: [MaverickAgentTests]
+  MaverickRemote:
+    build:
+      targets:
+        MaverickRemote: all
+    test:
+      targets: [MaverickRemoteTests]
