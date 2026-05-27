@@ -28,6 +28,7 @@ struct ContentView: View {
             } detail: {
                 if let id = store.activeSessionId {
                     TerminalWithToolbarView(sessionId: id)
+                        .id(id)
                 } else {
                     ContentUnavailableView("No Session", systemImage: "terminal", description: Text("Tap + to create a session"))
                 }
