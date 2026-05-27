@@ -59,8 +59,11 @@ struct InputToolbar: View {
                 }
             }
 
-            // Cursor pad (joystick) on the right
-            CursorPad(terminalVC: terminalVC)
+            // Right column: mic + cursor pad
+            VStack(spacing: 8) {
+                MicButton(terminalVC: terminalVC)
+                CursorPad(terminalVC: terminalVC)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)

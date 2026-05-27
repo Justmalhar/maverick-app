@@ -6,6 +6,7 @@ struct SessionTabBar: View {
     @Environment(SessionStore.self) var store
     @Environment(ConnectionManager.self) var connection
     @State private var showNewSession = false
+    @State private var showSettings = false
     @State private var newName = ""
 
     var body: some View {
@@ -42,7 +43,20 @@ struct SessionTabBar: View {
                     .background(Circle().fill(.ultraThinMaterial))
                     .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 0.5))
             }
+
+            // Settings gear
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(.ultraThinMaterial))
+                    .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 0.5))
+            }
             .padding(.trailing, 10)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsSheet()
         }
         .padding(.vertical, 8)
         .background(.thinMaterial)

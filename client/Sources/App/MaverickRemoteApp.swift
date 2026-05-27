@@ -7,6 +7,7 @@ struct MaverickRemoteApp: App {
     @State private var connection = ConnectionManager()
     @State private var store = SessionStore()
     @State private var history = ConnectionHistory()
+    @State private var settings = AppSettings()
 
     var body: some Scene {
         WindowGroup {
@@ -14,6 +15,7 @@ struct MaverickRemoteApp: App {
                 .environment(connection)
                 .environment(store)
                 .environment(history)
+                .environment(settings)
                 .task {
                     // Wire output routing after @State is initialized by SwiftUI
                     connection.onMessage = { [weak store] msg in

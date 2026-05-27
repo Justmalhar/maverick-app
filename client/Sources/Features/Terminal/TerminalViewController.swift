@@ -40,6 +40,22 @@ final class TerminalViewController: UIViewController {
         terminal.frame = view.bounds.inset(by: Self.terminalInset)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // Bring up the keyboard immediately so the user can start typing
+        // without an extra tap. SwiftTerm's TerminalView is first-responder-eligible.
+        _ = terminal.becomeFirstResponder()
+    }
+
+    func focusInput() {
+        _ = terminal.becomeFirstResponder()
+    }
+
+    func injectText(_ text: String) {
+        guard let data = text.data(using: .utf8) else { return }
+        onInput?(data)
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let cols = terminal.getTerminal().cols

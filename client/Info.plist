@@ -23,6 +23,8 @@
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Maverick uses the microphone to capture voice input that Deepgram transcribes into terminal commands.</string>
     <key>UIAppFonts</key>
     <array>
         <string>MesloLGS NF Regular.ttf</string>
