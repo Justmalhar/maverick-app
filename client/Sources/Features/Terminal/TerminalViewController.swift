@@ -10,9 +10,15 @@ final class TerminalViewController: UIViewController {
     private var lastCols = 0
     private var lastRows = 0
 
+    private static let terminalInset = UIEdgeInsets(top: 10, left: 12, bottom: 8, right: 12)
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        terminal = TerminalView(frame: view.bounds)
+        view.backgroundColor = .black
+
+        let inset = Self.terminalInset
+        let rect = view.bounds.inset(by: inset)
+        terminal = TerminalView(frame: rect)
         terminal.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         terminal.terminalDelegate = self
         terminal.backgroundColor = .black
@@ -27,6 +33,11 @@ final class TerminalViewController: UIViewController {
         }
 
         view.addSubview(terminal)
+    }
+
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        terminal.frame = view.bounds.inset(by: Self.terminalInset)
     }
 
     override func viewDidLayoutSubviews() {

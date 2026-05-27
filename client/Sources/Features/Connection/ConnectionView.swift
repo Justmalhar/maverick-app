@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ConnectionView: View {
     @Environment(ConnectionManager.self) var connection
+    @Environment(ConnectionHistory.self) var history
     @State private var host = UserDefaults.standard.string(forKey: "lastHost") ?? ""
     @State private var port: String = {
         let p = UserDefaults.standard.integer(forKey: "lastPort")
@@ -25,8 +26,11 @@ struct ConnectionView: View {
             .allowsHitTesting(false)
 
             ScrollView {
-                VStack(spacing: 28) {
+                VStack(spacing: 24) {
                     hero
+                    if !history.hosts.isEmpty {
+                        historySection
+                    }
                     formCard
                     connectButton
                     if let err = connection.lastError, connection.state != .connecting {
@@ -110,12 +114,69 @@ struct ConnectionView: View {
         )
     }
 
+    private var historySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Recent")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+            }
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 4)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(history.hosts) { entry in
+                        Button {
+                            host = entry.host
+                            port = String(entry.port)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(entry.host)
+                                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(Theme.textPrimary)
+                                    .lineLimit(1)
+                                Text(":\(entry.port)  •  \(entry.lastConnected, format: .relative(presentation: .named))")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.textSecondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(.ultraThinMaterial)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(Theme.stroke, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                history.remove(entry)
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+        }
+    }
+
     private var connectButton: some View {
         Button {
             focused = nil
+            let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            let intPort = Int(port) ?? 8765
+            history.record(host: cleanHost, port: intPort)
             connection.connect(
-                host: host.trimmingCharacters(in: .whitespacesAndNewlines),
-                port: Int(port) ?? 8765,
+                host: cleanHost,
+                port: intPort,
                 token: token
             )
         } label: {
