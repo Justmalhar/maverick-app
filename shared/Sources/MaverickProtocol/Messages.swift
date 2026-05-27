@@ -1,14 +1,20 @@
+// shared/Sources/MaverickProtocol/Messages.swift
 import Foundation
 
-private enum MessageType: String, Codable {
+private enum ClientMessageType: String, Codable {
     case listSessions = "list_sessions"
     case createSession = "create_session"
     case attachSession = "attach_session"
-    case input, resize
+    case input
+    case resize
     case closeSession = "close_session"
+}
+
+private enum ServerMessageType: String, Codable {
     case sessionList = "session_list"
     case sessionCreated = "session_created"
-    case output, scrollback
+    case output
+    case scrollback
     case sessionClosed = "session_closed"
     case error
 }
@@ -21,36 +27,63 @@ public enum ClientMessage: Codable, Sendable {
     case resize(sessionId: UUID, cols: Int, rows: Int)
     case closeSession(sessionId: UUID)
 
-    private enum CK: String, CodingKey { case type, name, shell, sessionId, data, cols, rows }
+    private enum ClientCodingKeys: String, CodingKey {
+        case type, name, shell, sessionId, data, cols, rows
+    }
 
     public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CK.self)
-        switch try c.decode(MessageType.self, forKey: .type) {
-        case .listSessions:  self = .listSessions
-        case .createSession: self = .createSession(name: try c.decode(String.self, forKey: .name), shell: try c.decode(String.self, forKey: .shell))
-        case .attachSession: self = .attachSession(sessionId: try c.decode(UUID.self, forKey: .sessionId))
-        case .input:         self = .input(sessionId: try c.decode(UUID.self, forKey: .sessionId), data: try c.decode(String.self, forKey: .data))
-        case .resize:        self = .resize(sessionId: try c.decode(UUID.self, forKey: .sessionId), cols: try c.decode(Int.self, forKey: .cols), rows: try c.decode(Int.self, forKey: .rows))
-        case .closeSession:  self = .closeSession(sessionId: try c.decode(UUID.self, forKey: .sessionId))
-        default: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unexpected client message type")
+        let container = try decoder.container(keyedBy: ClientCodingKeys.self)
+        let type = try container.decode(ClientMessageType.self, forKey: .type)
+        switch type {
+        case .listSessions:
+            self = .listSessions
+        case .createSession:
+            self = .createSession(
+                name: try container.decode(String.self, forKey: .name),
+                shell: try container.decode(String.self, forKey: .shell)
+            )
+        case .attachSession:
+            self = .attachSession(sessionId: try container.decode(UUID.self, forKey: .sessionId))
+        case .input:
+            self = .input(
+                sessionId: try container.decode(UUID.self, forKey: .sessionId),
+                data: try container.decode(String.self, forKey: .data)
+            )
+        case .resize:
+            self = .resize(
+                sessionId: try container.decode(UUID.self, forKey: .sessionId),
+                cols: try container.decode(Int.self, forKey: .cols),
+                rows: try container.decode(Int.self, forKey: .rows)
+            )
+        case .closeSession:
+            self = .closeSession(sessionId: try container.decode(UUID.self, forKey: .sessionId))
         }
     }
 
     public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CK.self)
+        var container = encoder.container(keyedBy: ClientCodingKeys.self)
         switch self {
         case .listSessions:
-            try c.encode(MessageType.listSessions, forKey: .type)
-        case .createSession(let n, let s):
-            try c.encode(MessageType.createSession, forKey: .type); try c.encode(n, forKey: .name); try c.encode(s, forKey: .shell)
-        case .attachSession(let id):
-            try c.encode(MessageType.attachSession, forKey: .type); try c.encode(id, forKey: .sessionId)
-        case .input(let id, let d):
-            try c.encode(MessageType.input, forKey: .type); try c.encode(id, forKey: .sessionId); try c.encode(d, forKey: .data)
-        case .resize(let id, let cols, let rows):
-            try c.encode(MessageType.resize, forKey: .type); try c.encode(id, forKey: .sessionId); try c.encode(cols, forKey: .cols); try c.encode(rows, forKey: .rows)
-        case .closeSession(let id):
-            try c.encode(MessageType.closeSession, forKey: .type); try c.encode(id, forKey: .sessionId)
+            try container.encode(ClientMessageType.listSessions, forKey: .type)
+        case .createSession(let name, let shell):
+            try container.encode(ClientMessageType.createSession, forKey: .type)
+            try container.encode(name, forKey: .name)
+            try container.encode(shell, forKey: .shell)
+        case .attachSession(let sessionId):
+            try container.encode(ClientMessageType.attachSession, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+        case .input(let sessionId, let data):
+            try container.encode(ClientMessageType.input, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+            try container.encode(data, forKey: .data)
+        case .resize(let sessionId, let cols, let rows):
+            try container.encode(ClientMessageType.resize, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+            try container.encode(cols, forKey: .cols)
+            try container.encode(rows, forKey: .rows)
+        case .closeSession(let sessionId):
+            try container.encode(ClientMessageType.closeSession, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
         }
     }
 }
@@ -63,36 +96,58 @@ public enum ServerMessage: Codable, Sendable {
     case sessionClosed(sessionId: UUID)
     case error(message: String)
 
-    private enum CK: String, CodingKey { case type, sessions, session, sessionId, data, message }
+    private enum ServerCodingKeys: String, CodingKey {
+        case type, sessions, session, sessionId, data, message
+    }
 
     public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CK.self)
-        switch try c.decode(MessageType.self, forKey: .type) {
-        case .sessionList:    self = .sessionList(sessions: try c.decode([SessionInfo].self, forKey: .sessions))
-        case .sessionCreated: self = .sessionCreated(session: try c.decode(SessionInfo.self, forKey: .session))
-        case .output:         self = .output(sessionId: try c.decode(UUID.self, forKey: .sessionId), data: try c.decode(String.self, forKey: .data))
-        case .scrollback:     self = .scrollback(sessionId: try c.decode(UUID.self, forKey: .sessionId), data: try c.decode(String.self, forKey: .data))
-        case .sessionClosed:  self = .sessionClosed(sessionId: try c.decode(UUID.self, forKey: .sessionId))
-        case .error:          self = .error(message: try c.decode(String.self, forKey: .message))
-        default: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unexpected server message type")
+        let container = try decoder.container(keyedBy: ServerCodingKeys.self)
+        let type = try container.decode(ServerMessageType.self, forKey: .type)
+        switch type {
+        case .sessionList:
+            self = .sessionList(sessions: try container.decode([SessionInfo].self, forKey: .sessions))
+        case .sessionCreated:
+            self = .sessionCreated(session: try container.decode(SessionInfo.self, forKey: .session))
+        case .output:
+            self = .output(
+                sessionId: try container.decode(UUID.self, forKey: .sessionId),
+                data: try container.decode(String.self, forKey: .data)
+            )
+        case .scrollback:
+            self = .scrollback(
+                sessionId: try container.decode(UUID.self, forKey: .sessionId),
+                data: try container.decode(String.self, forKey: .data)
+            )
+        case .sessionClosed:
+            self = .sessionClosed(sessionId: try container.decode(UUID.self, forKey: .sessionId))
+        case .error:
+            self = .error(message: try container.decode(String.self, forKey: .message))
         }
     }
 
     public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CK.self)
+        var container = encoder.container(keyedBy: ServerCodingKeys.self)
         switch self {
-        case .sessionList(let s):
-            try c.encode(MessageType.sessionList, forKey: .type); try c.encode(s, forKey: .sessions)
-        case .sessionCreated(let s):
-            try c.encode(MessageType.sessionCreated, forKey: .type); try c.encode(s, forKey: .session)
-        case .output(let id, let d):
-            try c.encode(MessageType.output, forKey: .type); try c.encode(id, forKey: .sessionId); try c.encode(d, forKey: .data)
-        case .scrollback(let id, let d):
-            try c.encode(MessageType.scrollback, forKey: .type); try c.encode(id, forKey: .sessionId); try c.encode(d, forKey: .data)
-        case .sessionClosed(let id):
-            try c.encode(MessageType.sessionClosed, forKey: .type); try c.encode(id, forKey: .sessionId)
-        case .error(let m):
-            try c.encode(MessageType.error, forKey: .type); try c.encode(m, forKey: .message)
+        case .sessionList(let sessions):
+            try container.encode(ServerMessageType.sessionList, forKey: .type)
+            try container.encode(sessions, forKey: .sessions)
+        case .sessionCreated(let session):
+            try container.encode(ServerMessageType.sessionCreated, forKey: .type)
+            try container.encode(session, forKey: .session)
+        case .output(let sessionId, let data):
+            try container.encode(ServerMessageType.output, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+            try container.encode(data, forKey: .data)
+        case .scrollback(let sessionId, let data):
+            try container.encode(ServerMessageType.scrollback, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+            try container.encode(data, forKey: .data)
+        case .sessionClosed(let sessionId):
+            try container.encode(ServerMessageType.sessionClosed, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+        case .error(let message):
+            try container.encode(ServerMessageType.error, forKey: .type)
+            try container.encode(message, forKey: .message)
         }
     }
 }
