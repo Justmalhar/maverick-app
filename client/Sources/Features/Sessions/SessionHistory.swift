@@ -12,6 +12,12 @@ struct PastSession: Codable, Identifiable, Equatable, Hashable {
     var firstSeen: Date
     var lastSeen: Date
     var closedAt: Date?
+    /// CodingAgent.id (rawValue). Set when the session was launched via the
+    /// task composer; lets "Previous" rows resume with the agent's native
+    /// resume flag.
+    var agentId: String?
+    /// The working directory the agent was launched in.
+    var cwd: String?
 
     var isClosed: Bool { closedAt != nil }
 }
@@ -51,6 +57,19 @@ final class SessionHistory {
     func remove(_ entry: PastSession) {
         entries.removeAll { $0.id == entry.id }
         save()
+    }
+
+    /// Records the agent + cwd a session was launched with so we can resume
+    /// later with the agent's native --continue / -c flag.
+    func recordLaunchContext(sessionId: UUID, agent: CodingAgent, cwd: String?) {
+        guard let idx = entries.firstIndex(where: { $0.id == sessionId }) else { return }
+        entries[idx].agentId = agent.id
+        entries[idx].cwd = cwd
+        save()
+    }
+
+    func entry(named name: String) -> PastSession? {
+        entries.filter { $0.name == name }.sorted { $0.lastSeen > $1.lastSeen }.first
     }
 
     func clearAllClosed() {

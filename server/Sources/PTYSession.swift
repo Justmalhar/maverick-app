@@ -13,8 +13,11 @@ final class PTYSession: @unchecked Sendable {
     private var observers: [(id: UUID, handler: (Data) -> Void)] = []
     var onExit: (() -> Void)?
 
-    init(name: String, shell: String = "/bin/zsh") {
+    private let cwd: String?
+
+    init(name: String, shell: String = "/bin/zsh", cwd: String? = nil) {
         self.info = SessionInfo(name: name, shell: shell)
+        self.cwd = cwd
     }
 
     func start() throws {
@@ -25,6 +28,14 @@ final class PTYSession: @unchecked Sendable {
         guard childPid >= 0 else { throw PTYError.forkFailed(errno) }
 
         if childPid == 0 {
+            // chdir before exec so the shell starts in the chosen directory.
+            // Both getenv and chdir are async-signal-safe per POSIX, so they
+            // are safe to call between fork and exec.
+            let resolved = Self.resolveStartDirectory(requested: cwd)
+            if let resolved {
+                resolved.withCString { _ = chdir($0) }
+            }
+
             let shell = info.shell
             // execv is non-variadic; safe to call from Swift.
             // argv must be a null-terminated array of C strings.
@@ -114,6 +125,23 @@ final class PTYSession: @unchecked Sendable {
 
     private func closeFd() {
         if masterFd >= 0 { close(masterFd); masterFd = -1 }
+    }
+
+    /// Resolves the working directory for a new session:
+    ///   - If `requested` is set, expand a leading `~` and use it.
+    ///   - Otherwise, fall back to the user's $HOME.
+    /// Note: this runs in the parent before fork as well as in the child
+    /// after fork (the result is captured by the child via the `cwd` field),
+    /// so the string itself is computed pre-fork. The actual `chdir` call
+    /// happens post-fork using only async-signal-safe APIs.
+    private static func resolveStartDirectory(requested: String?) -> String? {
+        let home = String(cString: getenv("HOME") ?? UnsafeMutablePointer<CChar>(mutating: ""))
+        guard let req = requested?.trimmingCharacters(in: .whitespacesAndNewlines), !req.isEmpty else {
+            return home.isEmpty ? nil : home
+        }
+        if req == "~" { return home.isEmpty ? nil : home }
+        if req.hasPrefix("~/") { return home + String(req.dropFirst(1)) }
+        return req
     }
 
     enum PTYError: Error { case forkFailed(Int32) }

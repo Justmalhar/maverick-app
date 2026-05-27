@@ -6,8 +6,8 @@ actor SessionManager {
     private var sessions: [UUID: PTYSession] = [:]
     private var onSessionClosed: ((UUID) -> Void)?
 
-    func createSession(name: String, shell: String = "/bin/zsh") throws -> SessionInfo {
-        let session = PTYSession(name: name, shell: shell)
+    func createSession(name: String, shell: String = "/bin/zsh", cwd: String? = nil) throws -> SessionInfo {
+        let session = PTYSession(name: name, shell: shell, cwd: cwd)
         session.onExit = { [weak self, id = session.info.id] in
             Task { await self?.handleExit(id: id) }
         }

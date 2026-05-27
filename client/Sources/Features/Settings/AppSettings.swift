@@ -6,9 +6,16 @@ import Observation
 final class AppSettings {
     private let dgKeyKey = "deepgramAPIKey.v1"
     private let agentBinariesKey = "agentBinaries.v1"
+    private let lastCwdKey = "lastWorkingDirectory.v1"
 
     var deepgramAPIKey: String {
         didSet { UserDefaults.standard.set(deepgramAPIKey, forKey: dgKeyKey) }
+    }
+
+    /// Default working directory for new terminal sessions. Empty string means
+    /// "use the Mac's $HOME" (which is the server-side default).
+    var lastWorkingDir: String {
+        didSet { UserDefaults.standard.set(lastWorkingDir, forKey: lastCwdKey) }
     }
 
     /// Per-agent CLI binary overrides. Empty/missing entries fall back to
@@ -23,6 +30,7 @@ final class AppSettings {
 
     init() {
         self.deepgramAPIKey = UserDefaults.standard.string(forKey: dgKeyKey) ?? ""
+        self.lastWorkingDir = UserDefaults.standard.string(forKey: lastCwdKey) ?? ""
         if let data = UserDefaults.standard.data(forKey: agentBinariesKey),
            let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
             self.agentBinaries = decoded

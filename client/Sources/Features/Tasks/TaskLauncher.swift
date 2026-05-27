@@ -11,41 +11,67 @@ import MaverickProtocol
 ///      user "types" into the agent's chat box — no `-p` / one-shot flags)
 ///   5. Publish `launchedSessionId` so the UI can navigate
 ///
-/// The two-step pattern (instead of `claude -p "task"`) keeps the agent in
-/// interactive mode, which providers like Anthropic and OpenAI bill differently
-/// — usually cheaper or covered by an existing seat.
+/// In RESUME mode (e.g. tapping a Previous row), step 4 is skipped and the
+/// binary is invoked with its `resumeFlag` (claude -c, codex --resume) so the
+/// CLI rehydrates the prior conversation from its own on-disk session store.
 @Observable
 final class TaskLauncher {
     var launchedSessionId: UUID?
 
+    /// Callback invoked once a queued task lands and the CLI is dispatched.
+    /// Hosted in the app entry point so SessionHistory can record (agent, cwd).
+    var onLaunched: ((_ sessionId: UUID, _ agent: CodingAgent, _ cwd: String?) -> Void)?
+
     struct Pending {
         let binary: String
-        let task: String
+        let task: String?      // nil = resume mode, no body to paste
+        let agent: CodingAgent
+        let cwd: String?
+        let resume: Bool
     }
     private var pending: [String: Pending] = [:]
 
-    func enqueue(sessionName: String, binary: String, task: String) {
-        pending[sessionName] = Pending(binary: binary, task: task)
+    func enqueue(
+        sessionName: String,
+        binary: String,
+        task: String?,
+        agent: CodingAgent,
+        cwd: String?,
+        resume: Bool = false
+    ) {
+        pending[sessionName] = Pending(
+            binary: binary,
+            task: task,
+            agent: agent,
+            cwd: cwd,
+            resume: resume
+        )
     }
 
     func handle(_ message: ServerMessage, connection: ConnectionManager) {
         guard case .sessionCreated(let info) = message else { return }
         guard let p = pending.removeValue(forKey: info.name) else { return }
 
-        // Step 1: launch the CLI inside the freshly-opened shell.
-        // Wait a beat so zsh has rendered its prompt.
+        let launchLine: String = {
+            if p.resume, let flag = p.agent.resumeFlag {
+                return "\(p.binary) \(flag)"
+            }
+            return p.binary
+        }()
+
+        // Step 1: launch the CLI inside the freshly-opened shell. Wait a beat
+        // so zsh has rendered its prompt.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            Self.sendLine(p.binary, sessionId: info.id, connection: connection)
+            Self.sendLine(launchLine, sessionId: info.id, connection: connection)
         }
 
-        // Step 2: paste the task body and submit. We give the CLI 1.5s to
-        // initialize and show its input box before we type. For most agents
-        // this is enough; we can make this configurable later if needed.
+        // Step 2: paste the task body and submit (skipped in resume mode).
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            if !p.task.isEmpty {
-                Self.sendLine(p.task, sessionId: info.id, connection: connection)
+            if !p.resume, let body = p.task, !body.isEmpty {
+                Self.sendLine(body, sessionId: info.id, connection: connection)
             }
             self?.launchedSessionId = info.id
+            self?.onLaunched?(info.id, p.agent, p.cwd)
         }
     }
 

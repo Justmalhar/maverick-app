@@ -36,6 +36,9 @@ struct MaverickRemoteApp: App {
                             taskLauncher?.handle(msg, connection: connRef)
                             attachmentManager?.handle(msg)
                         }
+                        taskLauncher.onLaunched = { [weak sessionHistory] sid, agent, cwd in
+                            sessionHistory?.recordLaunchContext(sessionId: sid, agent: agent, cwd: cwd)
+                        }
                         autoConnectIfPossible()
                         // Dismiss launch splash after a short delay.
                         try? await Task.sleep(for: .seconds(1.5))

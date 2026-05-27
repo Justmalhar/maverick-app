@@ -7,12 +7,14 @@ struct SessionsListView: View {
     @Environment(ConnectionManager.self) var connection
     @Environment(SessionHistory.self) var history
     @Environment(TaskLauncher.self) var launcher
+    @Environment(AppSettings.self) var settings
 
     @Binding var path: NavigationPath
     @Binding var showSettings: Bool
 
     @State private var showNewSession = false
     @State private var newName = ""
+    @State private var newCwd = ""
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -32,12 +34,16 @@ struct SessionsListView: View {
             }
         }
         .alert("New Session", isPresented: $showNewSession) {
-            TextField("e.g. claude, build, logs", text: $newName)
+            TextField("Name (e.g. claude, build, logs)", text: $newName)
                 .textInputAutocapitalization(.never)
-            Button("Create") { create(name: newName) }
-            Button("Cancel", role: .cancel) { newName = "" }
+                .autocorrectionDisabled()
+            TextField("Folder (default: ~)", text: $newCwd)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Create") { create(name: newName, cwd: newCwd) }
+            Button("Cancel", role: .cancel) { newName = ""; newCwd = "" }
         } message: {
-            Text("A new /bin/zsh session will start on your Mac.")
+            Text("A new /bin/zsh session will start on your Mac in the chosen folder.")
         }
         .onAppear { connection.send(.listSessions) }
     }
@@ -106,7 +112,7 @@ struct SessionsListView: View {
                     VStack(spacing: 8) {
                         ForEach(prev) { entry in
                             PreviousRow(entry: entry) {
-                                create(name: entry.name)
+                                resume(entry: entry)
                             } onRemove: {
                                 history.remove(entry)
                             }
@@ -121,6 +127,7 @@ struct SessionsListView: View {
         Button {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             newName = ""
+            newCwd = settings.lastWorkingDir
             showNewSession = true
         } label: {
             Image(systemName: "plus")
@@ -173,11 +180,51 @@ struct SessionsListView: View {
         )
     }
 
-    private func create(name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        connection.send(.createSession(name: trimmed, shell: "/bin/zsh"))
+    /// `cwd` is taken from the alert's folder field; if blank, the server
+    /// falls back to $HOME.
+    private func create(name: String, cwd: String = "") {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else { return }
+        let trimmedCwd = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cwdOpt: String? = trimmedCwd.isEmpty ? nil : trimmedCwd
+        if !trimmedCwd.isEmpty { settings.lastWorkingDir = trimmedCwd }
+        connection.send(.createSession(name: trimmedName, shell: "/bin/zsh", cwd: cwdOpt))
         newName = ""
+        newCwd = ""
+    }
+
+    /// Re-open a previous session. If the entry has an agent recorded, launch
+    /// that agent with its resume flag (`claude -c`, etc.) so the prior
+    /// conversation rehydrates from the agent's on-disk session store.
+    /// Otherwise this falls back to creating a plain shell session.
+    private func resume(entry: PastSession) {
+        let cwdOpt: String? = entry.cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmptyOrNil ?? settings.lastWorkingDir.nonEmptyOrNil
+
+        guard let agentId = entry.agentId,
+              let agent = CodingAgent(rawValue: agentId) else {
+            // No agent recorded — just open a shell with the same name.
+            connection.send(.createSession(name: entry.name, shell: "/bin/zsh", cwd: cwdOpt))
+            return
+        }
+
+        let binary = settings.binary(for: agent)
+        launcher.enqueue(
+            sessionName: entry.name,
+            binary: binary,
+            task: nil,
+            agent: agent,
+            cwd: cwdOpt,
+            resume: true
+        )
+        connection.send(.createSession(name: entry.name, shell: "/bin/zsh", cwd: cwdOpt))
+    }
+}
+
+private extension String {
+    var nonEmptyOrNil: String? {
+        let t = trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
     }
 }
 
@@ -239,13 +286,34 @@ private struct PreviousRow: View {
     let onReopen: () -> Void
     let onRemove: () -> Void
 
+    private var agent: CodingAgent? {
+        guard let id = entry.agentId else { return nil }
+        return CodingAgent(rawValue: id)
+    }
+
+    private var relativeWhen: String {
+        let date = entry.closedAt ?? entry.lastSeen
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return "Closed \(formatter.localizedString(for: date, relativeTo: Date()))"
+    }
+
+    private var subtitle: String {
+        guard let cwd = entry.cwd, !cwd.isEmpty else { return relativeWhen }
+        return "\(cwd)  •  \(relativeWhen)"
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle().fill(Color.white.opacity(0.04)).frame(width: 28, height: 28)
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.textTertiary)
+                if let agent {
+                    AgentIcon(agent: agent, size: 16)
+                } else {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                }
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -253,13 +321,14 @@ private struct PreviousRow: View {
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
-                Text("Closed \(entry.closedAt ?? entry.lastSeen, format: .relative(presentation: .named))")
+                Text(subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
             }
 
             Spacer()
-            Text("Re-open")
+            Text(agent != nil ? "Resume" : "Re-open")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.accent)
         }

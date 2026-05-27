@@ -11,6 +11,8 @@ struct TaskComposerCard: View {
     @State private var task: String = ""
     @State private var agent: CodingAgent = .claudeCode
     @State private var showFilePicker = false
+    @State private var showFolderEditor = false
+    @State private var folderDraft: String = ""
     @State private var lastError: String?
     @FocusState private var focused: Bool
 
@@ -45,6 +47,7 @@ struct TaskComposerCard: View {
 
             HStack(spacing: 8) {
                 attachButton
+                folderChip
                 agentPicker
                 Spacer()
                 runButton
@@ -69,6 +72,19 @@ struct TaskComposerCard: View {
             Button("OK", role: .cancel) { lastError = nil }
         } message: {
             Text(lastError ?? "")
+        }
+        .alert("Working Directory", isPresented: $showFolderEditor) {
+            TextField("e.g. ~/Documents/project (default: ~)", text: $folderDraft)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Save") {
+                settings.lastWorkingDir = folderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            Button("Use Home", role: .cancel) {
+                settings.lastWorkingDir = ""
+            }
+        } message: {
+            Text("Sessions launched from here will start in this folder on your Mac. Leave blank to use your home directory.")
         }
     }
 
@@ -119,6 +135,34 @@ struct TaskComposerCard: View {
                 .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
+    }
+
+    private var folderChip: some View {
+        Button {
+            folderDraft = settings.lastWorkingDir
+            showFolderEditor = true
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(folderLabel)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 110)
+            }
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(Capsule().fill(Color.white.opacity(0.04)))
+            .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var folderLabel: String {
+        let cwd = settings.lastWorkingDir.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cwd.isEmpty ? "~" : cwd
     }
 
     private var agentPicker: some View {
@@ -233,8 +277,10 @@ struct TaskComposerCard: View {
 
         let name = sessionName(for: trimmedTask.isEmpty ? "attachments" : trimmedTask)
         let binary = settings.binary(for: agent)
-        launcher.enqueue(sessionName: name, binary: binary, task: body)
-        connection.send(.createSession(name: name, shell: "/bin/zsh"))
+        let cwd = settings.lastWorkingDir.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cwdOpt: String? = cwd.isEmpty ? nil : cwd
+        launcher.enqueue(sessionName: name, binary: binary, task: body, agent: agent, cwd: cwdOpt)
+        connection.send(.createSession(name: name, shell: "/bin/zsh", cwd: cwdOpt))
 
         task = ""
         attachments.clear()

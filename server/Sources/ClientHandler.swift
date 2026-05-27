@@ -48,9 +48,9 @@ final class ClientHandler: @unchecked Sendable {
         case .listSessions:
             send(.sessionList(sessions: await sessionManager.listSessions()))
 
-        case .createSession(let name, let shell):
+        case .createSession(let name, let shell, let cwd):
             do {
-                let info = try await sessionManager.createSession(name: name, shell: shell)
+                let info = try await sessionManager.createSession(name: name, shell: shell, cwd: cwd)
                 send(.sessionCreated(session: info))
                 send(.sessionList(sessions: await sessionManager.listSessions()))
                 await attach(sessionId: info.id)

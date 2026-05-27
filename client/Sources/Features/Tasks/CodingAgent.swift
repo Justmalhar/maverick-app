@@ -32,4 +32,16 @@ enum CodingAgent: String, CaseIterable, Identifiable, Codable, Hashable {
         case .hermes:      return "hermes"
         }
     }
+
+    /// Flag passed to the binary to resume the most recent conversation in
+    /// the current directory. nil if the agent doesn't expose a resume flag.
+    var resumeFlag: String? {
+        switch self {
+        case .claudeCode:  return "-c"        // claude --continue
+        case .codex:       return "--resume"
+        case .opencode:    return "--continue"
+        case .antigravity: return nil
+        case .hermes:      return nil
+        }
+    }
 }

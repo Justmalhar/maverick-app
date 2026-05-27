@@ -1,22 +1,33 @@
 // client/Sources/Features/Terminal/InputToolbar.swift
 import SwiftUI
 
+/// Three-state keyboard accessory.
+///
+/// Always-visible primary row (joystick centered, mic on the right):
+///   [ scrolling quick keys ]   [ joystick ]   [ mic ⌃ ]
+///
+/// First chevron tap → arrow + nav row appears just above the primary row:
+///   [ ↑ ↓ ← → home end pgUp pgDn ]  [ More ⋯ ]
+///
+/// Tapping "More" inside the arrow row → control-sequence row + symbols
+/// toggle + optional symbol drawer slide in above.
 struct InputToolbar: View {
     let terminalVC: TerminalViewController
 
-    @State private var expanded = false
+    @State private var navOpen = false
+    @State private var moreOpen = false
     @State private var ctrlLatched = false
     @State private var showSymbols = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // Expanded panels live ABOVE the primary row so the joystick + mic
-            // remain anchored at the bottom — closer to the user's thumb.
-            if expanded {
-                expandedPanel
+            if moreOpen { morePanel
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if navOpen {
+                navRow
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-
             primaryRow
         }
         .background(.thinMaterial)
@@ -24,8 +35,6 @@ struct InputToolbar: View {
     }
 
     // MARK: - Primary always-visible row
-    // Three equal-width logical columns so the joystick is geometrically centered:
-    //   [ scrolling quick keys ]   [ joystick ]   [ mic + expand chevron ]
 
     private var primaryRow: some View {
         HStack(spacing: 8) {
@@ -67,13 +76,18 @@ struct InputToolbar: View {
     private var expandChevron: some View {
         Button {
             withAnimation(.snappy(duration: 0.18)) {
-                expanded.toggle()
-                if !expanded { showSymbols = false }
+                if navOpen {
+                    // Close both panels together.
+                    navOpen = false
+                    moreOpen = false
+                } else {
+                    navOpen = true
+                }
             }
         } label: {
-            Image(systemName: expanded ? "chevron.down" : "chevron.up")
+            Image(systemName: navOpen ? "chevron.down" : "chevron.up")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(navOpen ? Theme.accent : Theme.textSecondary)
                 .frame(width: 34, height: 34)
                 .background(Circle().fill(Theme.surface))
                 .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 0.5))
@@ -81,11 +95,10 @@ struct InputToolbar: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Expanded panel: arrows row + control sequences + optional symbols
+    // MARK: - First-stage expand: arrows + nav
 
-    private var expandedPanel: some View {
-        VStack(spacing: 6) {
-            // Arrows + return + symbol toggle on one row.
+    private var navRow: some View {
+        HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) {
                     KeyCap(label: "↑", action: { terminalVC.sendArrow("[A"); ctrlLatched = false })
@@ -97,10 +110,35 @@ struct InputToolbar: View {
                     KeyCap(label: "pgUp", action: { sendEscSeq("[5~") })
                     KeyCap(label: "pgDn", action: { sendEscSeq("[6~") })
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 2)
             }
 
-            // Common readline / process-control sequences.
+            Button {
+                withAnimation(.snappy(duration: 0.18)) { moreOpen.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: moreOpen ? "chevron.down" : "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                    Text(moreOpen ? "Less" : "More")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(moreOpen ? Theme.onAccent : Theme.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(moreOpen ? Color.white.opacity(0.95) : Color.white.opacity(0.06)))
+                .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .overlay(Rectangle().fill(Theme.stroke).frame(height: 0.5), alignment: .bottom)
+    }
+
+    // MARK: - Second-stage expand: control sequences + symbols
+
+    private var morePanel: some View {
+        VStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) {
                     KeyCap(label: "^C", style: .danger,  action: { send(0x03) })
@@ -130,7 +168,6 @@ struct InputToolbar: View {
                 .padding(.horizontal, 8)
             }
 
-            // Optional symbol drawer.
             if showSymbols {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 5) {
@@ -143,7 +180,7 @@ struct InputToolbar: View {
                 .transition(.opacity)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .overlay(Rectangle().fill(Theme.stroke).frame(height: 0.5), alignment: .bottom)
     }
 

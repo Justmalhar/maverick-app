@@ -24,7 +24,9 @@ private enum ServerMessageType: String, Codable {
 
 public enum ClientMessage: Codable, Sendable {
     case listSessions
-    case createSession(name: String, shell: String)
+    /// `cwd` is the absolute path on the Mac to start the shell in. If nil or
+    /// empty, the server defaults to the user's home directory.
+    case createSession(name: String, shell: String, cwd: String?)
     case attachSession(sessionId: UUID)
     case input(sessionId: UUID, data: String)
     case resize(sessionId: UUID, cols: Int, rows: Int)
@@ -34,7 +36,7 @@ public enum ClientMessage: Codable, Sendable {
     case uploadFile(uploadId: UUID, filename: String, data: String)
 
     private enum ClientCodingKeys: String, CodingKey {
-        case type, name, shell, sessionId, data, cols, rows, uploadId, filename
+        case type, name, shell, sessionId, data, cols, rows, uploadId, filename, cwd
     }
 
     public init(from decoder: Decoder) throws {
@@ -46,7 +48,8 @@ public enum ClientMessage: Codable, Sendable {
         case .createSession:
             self = .createSession(
                 name: try container.decode(String.self, forKey: .name),
-                shell: try container.decode(String.self, forKey: .shell)
+                shell: try container.decode(String.self, forKey: .shell),
+                cwd: try container.decodeIfPresent(String.self, forKey: .cwd)
             )
         case .attachSession:
             self = .attachSession(sessionId: try container.decode(UUID.self, forKey: .sessionId))
@@ -77,10 +80,11 @@ public enum ClientMessage: Codable, Sendable {
         switch self {
         case .listSessions:
             try container.encode(ClientMessageType.listSessions, forKey: .type)
-        case .createSession(let name, let shell):
+        case .createSession(let name, let shell, let cwd):
             try container.encode(ClientMessageType.createSession, forKey: .type)
             try container.encode(name, forKey: .name)
             try container.encode(shell, forKey: .shell)
+            try container.encodeIfPresent(cwd, forKey: .cwd)
         case .attachSession(let sessionId):
             try container.encode(ClientMessageType.attachSession, forKey: .type)
             try container.encode(sessionId, forKey: .sessionId)
