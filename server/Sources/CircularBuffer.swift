@@ -6,6 +6,7 @@ struct CircularBuffer<T> {
     let capacity: Int
 
     init(capacity: Int) {
+        precondition(capacity > 0, "CircularBuffer capacity must be positive")
         self.capacity = capacity
         self.storage = Array(repeating: nil, count: capacity)
     }
@@ -24,8 +25,8 @@ struct CircularBuffer<T> {
         for e in elements { append(e) }
     }
 
-    var contents: [T] {
-        (0..<count).compactMap { storage[(head + $0) % capacity] }
+    func snapshot() -> [T] {
+        (0..<count).map { storage[(head + $0) % capacity]! }
     }
 
     var isEmpty: Bool { count == 0 }
