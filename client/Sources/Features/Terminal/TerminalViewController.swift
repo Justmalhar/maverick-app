@@ -2,6 +2,13 @@
 import UIKit
 import SwiftTerm
 
+/// SwiftTerm ships its own iOS input accessory bar (esc/ctrl/tab/F1/arrows/etc)
+/// that sits above the system keyboard. We render our own InputToolbar in
+/// SwiftUI, so override this to nil to avoid stacking two accessory bars.
+private final class NoAccessoryTerminalView: TerminalView {
+    override var inputAccessoryView: UIView? { nil }
+}
+
 final class TerminalViewController: UIViewController {
     private(set) var terminal: TerminalView!
     var onInput: ((Data) -> Void)?
@@ -19,7 +26,7 @@ final class TerminalViewController: UIViewController {
 
         let inset = Self.terminalInset
         let rect = view.bounds.inset(by: inset)
-        terminal = TerminalView(frame: rect)
+        terminal = NoAccessoryTerminalView(frame: rect)
         terminal.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         terminal.terminalDelegate = self
         terminal.backgroundColor = .black
