@@ -15,6 +15,8 @@ struct MaverickRemoteApp: App {
     @State private var gitStatus = GitStatusModel()
     @State private var settings = AppSettings()
     @State private var themeStore = ThemeStore()
+    @State private var chatStore = ChatStore()
+    @State private var agentSessionStore = AgentSessionStore()
 
     @State private var showSplash = true
     @State private var isInBackground = false
@@ -34,9 +36,11 @@ struct MaverickRemoteApp: App {
                     .environment(gitStatus)
                     .environment(settings)
                     .environment(themeStore)
+                    .environment(chatStore)
+                    .environment(agentSessionStore)
                     .task {
                         let connRef = connection
-                        connection.onMessage = { [weak store, weak sessionHistory, weak taskLauncher, weak attachmentManager, weak directoryBrowser, weak projectIndex, weak gitStatus] msg in
+                        connection.onMessage = { [weak store, weak sessionHistory, weak taskLauncher, weak attachmentManager, weak directoryBrowser, weak projectIndex, weak gitStatus, weak agentSessionStore] msg in
                             store?.handle(msg)
                             sessionHistory?.handle(msg)
                             taskLauncher?.handle(msg, connection: connRef)
@@ -44,6 +48,7 @@ struct MaverickRemoteApp: App {
                             directoryBrowser?.handle(msg)
                             projectIndex?.handle(msg)
                             gitStatus?.handle(msg)
+                            agentSessionStore?.handle(msg)
                         }
                         taskLauncher.onLaunched = { [weak sessionHistory] sid, agent, cwd in
                             sessionHistory?.recordLaunchContext(sessionId: sid, agent: agent, cwd: cwd)

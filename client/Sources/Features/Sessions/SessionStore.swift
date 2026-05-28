@@ -54,6 +54,9 @@ final class SessionStore {
         case .gitStatusResult, .gitStatusFailed, .gitDiffResult, .gitDiffFailed:
             // Handled by GitStatusModel.
             break
+        case .agentEvent, .agentSessionCreated:
+            // Handled by AgentSessionStore.
+            break
         }
     }
 
