@@ -21,9 +21,15 @@ final class AgentSessionStore {
 
         case .agentEvent(let sessionId, let event):
             if sessions[sessionId] == nil {
-                // Late-arriving event for a session created before we registered — create on demand.
+                // `agentSessionCreated` should precede the first `agentEvent` in normal flow.
+                // If it doesn't (reconnect mid-session), create a stub using the provider from
+                // `sessionStart` if this IS the sessionStart event; otherwise fall back to
+                // .claudeCode (apply() will correct it when sessionStart arrives).
+                let provider: AgentProvider
+                if case .sessionStart(_, let p, _, _, _) = event { provider = p }
+                else { provider = .claudeCode }
                 sessions[sessionId] = AgentSessionModel(
-                    sessionId: sessionId, provider: .claudeCode, mode: .chat, cwd: ""
+                    sessionId: sessionId, provider: provider, mode: .chat, cwd: ""
                 )
             }
             sessions[sessionId]?.apply(event)

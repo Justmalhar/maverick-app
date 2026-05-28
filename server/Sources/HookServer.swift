@@ -186,27 +186,32 @@ final class HookServer {
             let bodyData = Data(raw[bodyStart..<(bodyStart + contentLength)])
             processBody(bodyData, connection: connection)
         } else {
-            // Need more data. Read the remainder.
-            let remaining = contentLength - bodyAvailable
+            // Need more data. Loop-receive until we have all contentLength bytes.
             let partial = bodyAvailable > 0 ? Data(raw[bodyStart...]) : Data()
-            receiveRemainingBody(partial, remaining: remaining, connection: connection)
+            receiveRemainingBody(partial, contentLength: contentLength, connection: connection)
         }
     }
 
     private func receiveRemainingBody(
         _ accumulated: Data,
-        remaining: Int,
+        contentLength: Int,
         connection: NWConnection
     ) {
-        connection.receive(minimumIncompleteLength: remaining, maximumLength: remaining) { [weak self] data, _, _, error in
+        let stillNeeded = contentLength - accumulated.count
+        connection.receive(minimumIncompleteLength: 1, maximumLength: max(1, stillNeeded)) { [weak self] data, _, _, error in
             guard let self else { return }
             if let error {
                 NSLog("[HookServer] body receive error: %@", String(describing: error))
                 connection.cancel()
                 return
             }
-            let body = accumulated + (data ?? Data())
-            self.processBody(body, connection: connection)
+            let newAccumulated = accumulated + (data ?? Data())
+            if newAccumulated.count >= contentLength {
+                self.processBody(newAccumulated, connection: connection)
+            } else {
+                // NWFramework may deliver less than requested — recurse until complete.
+                self.receiveRemainingBody(newAccumulated, contentLength: contentLength, connection: connection)
+            }
         }
     }
 

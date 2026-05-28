@@ -354,12 +354,12 @@ struct PermissionDialogView: View {
     }
 
     private func respond(allowed: Bool) {
-        guard let requestId = UUID(uuidString: event.requestId) else {
-            // requestId must be UUID-formatted — don't dismiss the dialog if we can't route the response
-            print("[PermissionDialogView] malformed requestId: \(event.requestId)")
-            return
+        if let requestId = UUID(uuidString: event.requestId) {
+            connection.send(.permissionResponse(sessionId: sessionId, requestId: requestId, allowed: allowed))
+        } else {
+            print("[PermissionDialogView] malformed requestId: \(event.requestId), dismissing without server response")
         }
-        connection.send(.permissionResponse(sessionId: sessionId, requestId: requestId, allowed: allowed))
+        // Always dismiss — never strand the UI even if the server response could not be sent.
         agentStore.session(for: sessionId)?.resolvePermission(requestId: event.requestId)
     }
 }

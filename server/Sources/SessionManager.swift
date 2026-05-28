@@ -107,7 +107,15 @@ actor SessionManager {
 
         session.onAgentEvent = { [weak self] event in
             if case .sessionStart(let claudeId, _, _, _, _) = event {
-                Task { [weak self] in await self?.registerClaudeId(claudeId, for: sessionId) }
+                // Register the Claude ID BEFORE broadcasting so that any hook events
+                // that arrive after the iOS client sees sessionStart can be routed.
+                // (Hooks fire in response to agent actions triggered by the user, which
+                // can only happen after the client has received and acted on sessionStart.)
+                Task { [weak self] in
+                    await self?.registerClaudeId(claudeId, for: sessionId)
+                    capturedBroadcaster.receive(event: event, for: sessionId)
+                }
+                return
             }
             capturedBroadcaster.receive(event: event, for: sessionId)
         }

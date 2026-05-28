@@ -124,7 +124,9 @@ final class AgentSession: @unchecked Sendable {
         ptySession?.terminate()
         ptySession = nil
 
-        // Capture chat-mode state under lock, then release before doing I/O
+        // Capture chat-mode state under lock, then release before doing I/O.
+        // lineBuffer is NOT cleared here — it is cleared after the readability handler
+        // is removed so the last-line data is not lost mid-parse.
         lock.lock()
         let capturedProcess = agentProcess
         let capturedStdout = stdoutPipe
@@ -132,13 +134,17 @@ final class AgentSession: @unchecked Sendable {
         agentProcess = nil
         stdoutPipe = nil
         stdinPipe = nil
-        lineBuffer.removeAll()
         lock.unlock()
 
-        // Do I/O outside the lock to avoid holding it during potentially blocking calls
+        // Remove handler FIRST so no new data enters the buffer after we clear it.
         capturedStdout?.fileHandleForReading.readabilityHandler = nil
         try? capturedStdin?.fileHandleForWriting.close()
         capturedProcess?.terminate()
+
+        // Safe to clear now — the readability handler can no longer fire.
+        lock.lock()
+        lineBuffer.removeAll()
+        lock.unlock()
     }
 
     // MARK: - Private: terminal launch
