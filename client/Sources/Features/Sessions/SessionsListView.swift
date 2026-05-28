@@ -51,17 +51,14 @@ struct SessionsListView: View {
             Theme.bg.ignoresSafeArea()
             VStack(spacing: 0) {
                 navigationHeader
-                ScrollView {
-                    VStack(spacing: 0) {
-                        if !isEditing {
-                            pinnedAgentsRow
-                            sessionDivider
-                        }
-                        sessionsList
-                        Spacer(minLength: 32)
-                    }
+                if !isEditing {
+                    pinnedAgentsRow
+                    sessionDivider
                 }
-                .scrollDismissesKeyboard(.interactively)
+                // sessionsList is a List, so it owns its own scrolling. We
+                // intentionally do NOT wrap it in a ScrollView — that nesting
+                // was eating the swipe gesture and disabling .swipeActions.
+                sessionsList
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -226,67 +223,79 @@ struct SessionsListView: View {
 
     // MARK: - Sessions list
 
+    /// `List` (not LazyVStack) so each row gets system-level `.swipeActions`
+    /// support. Visual styling matches the rest of the app via .plain list
+    /// style + transparent row backgrounds + zero insets + hidden separators
+    /// — same pattern ChatListView uses.
     private var sessionsList: some View {
-        LazyVStack(spacing: 0) {
-            if filterMode != .previous {
-                let active = store.sessions
-                if active.isEmpty && filterMode == .active {
-                    emptyState(icon: "terminal", text: "No active sessions",
-                               hint: "Tap an agent above or ✏️ to assign work")
-                } else {
-                    ForEach(active) { session in
-                        AgentSessionRow(
-                            session: session,
-                            isEditing: isEditing,
-                            isSelected: selectedSessionIds.contains(session.id),
-                            onTap: {
-                                if isEditing {
-                                    toggleSession(session.id)
-                                } else {
-                                    store.activeSessionId = session.id
-                                    path.append(session.id)
-                                }
-                            },
-                            onClose: { connection.send(.closeSession(sessionId: session.id)) }
-                        )
-                        insetDivider
-                    }
-                }
-            }
+        let activeNames = Set(store.sessions.map(\.name))
+        let prev = history.previous(excluding: activeNames)
+        let showActive = filterMode != .previous
+        let showPrev = filterMode != .active
 
-            if filterMode != .active {
-                let activeNames = Set(store.sessions.map(\.name))
-                let prev = history.previous(excluding: activeNames)
-                if prev.isEmpty && filterMode == .previous {
-                    emptyState(icon: "clock", text: "No previous sessions",
-                               hint: "Completed sessions will appear here")
-                } else {
-                    ForEach(prev) { entry in
-                        PreviousAgentSessionRow(
-                            entry: entry,
-                            isEditing: isEditing,
-                            isSelected: selectedHistoryIds.contains(entry.id),
-                            onTap: {
-                                if isEditing {
-                                    toggleHistory(entry.id)
-                                } else {
-                                    resume(entry: entry)
-                                }
-                            },
-                            onRemove: { history.remove(entry) }
-                        )
-                        insetDivider
-                    }
-                }
-            }
-
-            if filterMode == .all && store.sessions.isEmpty {
-                let activeNames = Set(store.sessions.map(\.name))
-                if history.previous(excluding: activeNames).isEmpty {
+        return Group {
+            if store.sessions.isEmpty && prev.isEmpty {
+                switch filterMode {
+                case .all:
                     emptyState(icon: "bubble.left.and.bubble.right",
                                text: "No sessions yet",
                                hint: "Assign work to an agent above or tap ✏️")
+                case .active:
+                    emptyState(icon: "terminal", text: "No active sessions",
+                               hint: "Tap an agent above or ✏️ to assign work")
+                case .previous:
+                    emptyState(icon: "clock", text: "No previous sessions",
+                               hint: "Completed sessions will appear here")
                 }
+            } else {
+                List {
+                    if showActive {
+                        ForEach(store.sessions) { session in
+                            AgentSessionRow(
+                                session: session,
+                                isEditing: isEditing,
+                                isSelected: selectedSessionIds.contains(session.id),
+                                onTap: {
+                                    if isEditing {
+                                        toggleSession(session.id)
+                                    } else {
+                                        store.activeSessionId = session.id
+                                        path.append(session.id)
+                                    }
+                                },
+                                onClose: {
+                                    connection.send(.closeSession(sessionId: session.id))
+                                }
+                            )
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets())
+                        }
+                    }
+                    if showPrev {
+                        ForEach(prev) { entry in
+                            PreviousAgentSessionRow(
+                                entry: entry,
+                                isEditing: isEditing,
+                                isSelected: selectedHistoryIds.contains(entry.id),
+                                onTap: {
+                                    if isEditing {
+                                        toggleHistory(entry.id)
+                                    } else {
+                                        resume(entry: entry)
+                                    }
+                                },
+                                onRemove: { history.remove(entry) }
+                            )
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets())
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .environment(\.defaultMinListRowHeight, 0)
             }
         }
     }
