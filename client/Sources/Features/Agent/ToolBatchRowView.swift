@@ -229,9 +229,9 @@ struct ToolBatchRowView: View {
                     .frame(width: 12)
                     .animation(.snappy(duration: 0.2), value: isCollapsed)
 
-                // Tool icon cluster (up to 4 icons)
+                // Tool icon cluster (up to 3, matching the label prefix cap)
                 HStack(spacing: -2) {
-                    ForEach(Array(uniqueToolKinds.prefix(4).enumerated()), id: \.offset) { _, kind in
+                    ForEach(Array(uniqueToolKinds.prefix(3).enumerated()), id: \.offset) { _, kind in
                         Image(systemName: kind.systemImage)
                             .font(.system(size: 11))
                             .foregroundStyle(kind.tintColor)

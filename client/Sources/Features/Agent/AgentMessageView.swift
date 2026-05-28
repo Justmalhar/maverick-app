@@ -99,7 +99,7 @@ private struct StreamingCursor: View {
 // MARK: - Thinking indicator
 
 struct ThinkingIndicator: View {
-    @State private var phase: Int = 0
+    @State private var animating = false
 
     var body: some View {
         HStack(spacing: 5) {
@@ -107,10 +107,16 @@ struct ThinkingIndicator: View {
                 Circle()
                     .fill(Theme.textTertiary)
                     .frame(width: 7, height: 7)
-                    .scaleEffect(phase == i ? 1.3 : 0.9)
+                    .scaleEffect(animating ? 1.35 : 0.75)
+                    .opacity(animating ? 1.0 : 0.35)
+                    // Each dot gets an independent repeatForever animation with a
+                    // staggered delay — they all trigger from the same `animating`
+                    // value change but start at different offsets, producing a wave.
                     .animation(
-                        .easeInOut(duration: 0.4).repeatForever().delay(Double(i) * 0.13),
-                        value: phase
+                        .easeInOut(duration: 0.48)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(i) * 0.16),
+                        value: animating
                     )
             }
         }
@@ -121,9 +127,7 @@ struct ThinkingIndicator: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(Theme.stroke, lineWidth: 0.5)
         )
-        .onAppear {
-            withAnimation { phase = 1 }
-        }
+        .onAppear { animating = true }
     }
 }
 
@@ -350,9 +354,12 @@ struct PermissionDialogView: View {
     }
 
     private func respond(allowed: Bool) {
-        if let requestId = UUID(uuidString: event.requestId) {
-            connection.send(.permissionResponse(sessionId: sessionId, requestId: requestId, allowed: allowed))
+        guard let requestId = UUID(uuidString: event.requestId) else {
+            // requestId must be UUID-formatted — don't dismiss the dialog if we can't route the response
+            print("[PermissionDialogView] malformed requestId: \(event.requestId)")
+            return
         }
+        connection.send(.permissionResponse(sessionId: sessionId, requestId: requestId, allowed: allowed))
         agentStore.session(for: sessionId)?.resolvePermission(requestId: event.requestId)
     }
 }
