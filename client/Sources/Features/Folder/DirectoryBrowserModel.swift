@@ -56,10 +56,28 @@ final class DirectoryBrowserModel {
             return
         }
 
+        // Refuse to send into a dead socket — surface the error immediately
+        // so the user sees "Reconnecting…" instead of a spinner forever.
+        guard connection.state == .connected else {
+            state = .error("Not connected to your Mac. Reconnecting…")
+            return
+        }
+
         state = .loading
         let req = UUID()
         pendingRequest = req
         connection.send(.listDirectory(requestId: req, path: normalized))
+
+        // Belt-and-suspenders: if no reply arrives in 8s, surface a timeout
+        // rather than spin forever. Real round-trips over Tailscale are well
+        // under 200ms.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self else { return }
+            if self.pendingRequest == req {
+                self.pendingRequest = nil
+                self.state = .error("Request timed out. Pull down to retry.")
+            }
+        }
     }
 
     /// Convenience for going up one level.
