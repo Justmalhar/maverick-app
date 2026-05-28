@@ -13,6 +13,10 @@ private enum ClientMessageType: String, Codable {
     case indexProject = "index_project"
     case gitStatus = "git_status"
     case gitDiff = "git_diff"
+    case createAgentSession = "create_agent_session"
+    case switchSessionMode = "switch_session_mode"
+    case agentInput = "agent_input"
+    case permissionResponse = "permission_response"
 }
 
 private enum ServerMessageType: String, Codable {
@@ -32,6 +36,8 @@ private enum ServerMessageType: String, Codable {
     case gitStatusFailed = "git_status_failed"
     case gitDiffResult = "git_diff_result"
     case gitDiffFailed = "git_diff_failed"
+    case agentEvent = "agent_event"
+    case agentSessionCreated = "agent_session_created"
 }
 
 public enum ClientMessage: Codable, Sendable {
@@ -62,8 +68,21 @@ public enum ClientMessage: Codable, Sendable {
     /// produces `git diff --cached`.
     case gitDiff(requestId: UUID, path: String, file: String, staged: Bool)
 
+    /// Create a new agent session backed by a coding agent (not a raw PTY).
+    case createAgentSession(name: String, provider: AgentProvider, cwd: String?)
+
+    /// Switch an existing session between terminal and chat mode.
+    case switchSessionMode(sessionId: UUID, mode: SessionMode)
+
+    /// Send a chat message to an agent session.
+    case agentInput(sessionId: UUID, text: String)
+
+    /// Respond to a permission prompt from the agent.
+    case permissionResponse(sessionId: UUID, requestId: UUID, allowed: Bool)
+
     private enum ClientCodingKeys: String, CodingKey {
         case type, name, shell, sessionId, data, cols, rows, uploadId, filename, cwd, requestId, path, refresh, file, staged
+        case provider, mode, text, allowed
     }
 
     public init(from decoder: Decoder) throws {
@@ -122,6 +141,28 @@ public enum ClientMessage: Codable, Sendable {
                 file: try container.decode(String.self, forKey: .file),
                 staged: try container.decodeIfPresent(Bool.self, forKey: .staged) ?? false
             )
+        case .createAgentSession:
+            self = .createAgentSession(
+                name: try container.decode(String.self, forKey: .name),
+                provider: try container.decode(AgentProvider.self, forKey: .provider),
+                cwd: try container.decodeIfPresent(String.self, forKey: .cwd)
+            )
+        case .switchSessionMode:
+            self = .switchSessionMode(
+                sessionId: try container.decode(UUID.self, forKey: .sessionId),
+                mode: try container.decode(SessionMode.self, forKey: .mode)
+            )
+        case .agentInput:
+            self = .agentInput(
+                sessionId: try container.decode(UUID.self, forKey: .sessionId),
+                text: try container.decode(String.self, forKey: .text)
+            )
+        case .permissionResponse:
+            self = .permissionResponse(
+                sessionId: try container.decode(UUID.self, forKey: .sessionId),
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                allowed: try container.decode(Bool.self, forKey: .allowed)
+            )
         }
     }
 
@@ -174,6 +215,24 @@ public enum ClientMessage: Codable, Sendable {
             try container.encode(path, forKey: .path)
             try container.encode(file, forKey: .file)
             try container.encode(staged, forKey: .staged)
+        case .createAgentSession(let name, let provider, let cwd):
+            try container.encode(ClientMessageType.createAgentSession, forKey: .type)
+            try container.encode(name, forKey: .name)
+            try container.encode(provider, forKey: .provider)
+            try container.encodeIfPresent(cwd, forKey: .cwd)
+        case .switchSessionMode(let sessionId, let mode):
+            try container.encode(ClientMessageType.switchSessionMode, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+            try container.encode(mode, forKey: .mode)
+        case .agentInput(let sessionId, let text):
+            try container.encode(ClientMessageType.agentInput, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+            try container.encode(text, forKey: .text)
+        case .permissionResponse(let sessionId, let requestId, let allowed):
+            try container.encode(ClientMessageType.permissionResponse, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(allowed, forKey: .allowed)
         }
     }
 }
@@ -200,9 +259,16 @@ public enum ServerMessage: Codable, Sendable {
     case gitDiffResult(requestId: UUID, file: String, diff: String, truncated: Bool)
     case gitDiffFailed(requestId: UUID, message: String)
 
+    /// A normalized agent lifecycle event emitted by the coding agent backend.
+    case agentEvent(sessionId: UUID, event: AgentEvent)
+
+    /// Confirmation that an agent session was created.
+    case agentSessionCreated(session: SessionInfo)
+
     private enum ServerCodingKeys: String, CodingKey {
         case type, sessions, session, sessionId, data, message, uploadId, path, requestId, entries
         case root, complete, status, file, diff, truncated
+        case event
     }
 
     public init(from decoder: Decoder) throws {
@@ -282,6 +348,13 @@ public enum ServerMessage: Codable, Sendable {
                 requestId: try container.decode(UUID.self, forKey: .requestId),
                 message: try container.decode(String.self, forKey: .message)
             )
+        case .agentEvent:
+            self = .agentEvent(
+                sessionId: try container.decode(UUID.self, forKey: .sessionId),
+                event: try container.decode(AgentEvent.self, forKey: .event)
+            )
+        case .agentSessionCreated:
+            self = .agentSessionCreated(session: try container.decode(SessionInfo.self, forKey: .session))
         }
     }
 
@@ -353,6 +426,13 @@ public enum ServerMessage: Codable, Sendable {
             try container.encode(ServerMessageType.gitDiffFailed, forKey: .type)
             try container.encode(requestId, forKey: .requestId)
             try container.encode(message, forKey: .message)
+        case .agentEvent(let sessionId, let event):
+            try container.encode(ServerMessageType.agentEvent, forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+            try container.encode(event, forKey: .event)
+        case .agentSessionCreated(let session):
+            try container.encode(ServerMessageType.agentSessionCreated, forKey: .type)
+            try container.encode(session, forKey: .session)
         }
     }
 }
