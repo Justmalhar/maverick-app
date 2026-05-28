@@ -6,6 +6,9 @@ final class TerminalViewController: UIViewController {
     private(set) var terminal: TerminalView!
     var onInput: ((Data) -> Void)?
     var onResize: ((Int, Int) -> Void)?
+    /// Fired whenever the shell emits an OSC 7 `file://host/path` sequence so
+    /// the Files tab can follow the user's `cd` commands.
+    var onCwdChange: ((String) -> Void)?
 
     private var lastCols = 0
     private var lastRows = 0
@@ -152,7 +155,28 @@ extension TerminalViewController: TerminalViewDelegate {
         }
     }
     func bell(source: TerminalView) {}
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+        guard let directory else { return }
+        let path = Self.parseHostCwd(directory)
+        guard !path.isEmpty else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.onCwdChange?(path)
+        }
+    }
+
+    /// Strips the `file://<hostname>` prefix from an OSC 7 payload, returning
+    /// just the absolute path. Falls back to the raw string if the format is
+    /// unexpected.
+    static func parseHostCwd(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard s.hasPrefix("file://") else { return s }
+        let withoutScheme = s.dropFirst("file://".count)
+        // host is everything up to the first '/'; path is from that '/' on.
+        if let slash = withoutScheme.firstIndex(of: "/") {
+            return String(withoutScheme[slash...])
+        }
+        return String(withoutScheme)
+    }
     func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
     func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
     func clipboardCopy(source: TerminalView, content: Data) {}

@@ -7,6 +7,18 @@ final class SessionStore {
     var sessions: [SessionInfo] = []
     var activeSessionId: UUID?
     var outputHandlers: [UUID: (Data) -> Void] = [:]
+    /// Live working directory per session, as reported by the shell's OSC 7
+    /// escape sequence (`\e]7;file://host/path\e\\`). The Files tab re-indexes
+    /// whenever the entry for its session changes.
+    var sessionCwds: [UUID: String] = [:]
+
+    func updateCwd(sessionId: UUID, cwd: String) {
+        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if sessionCwds[sessionId] != trimmed {
+            sessionCwds[sessionId] = trimmed
+        }
+    }
 
     func handle(_ message: ServerMessage) {
         switch message {

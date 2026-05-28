@@ -141,9 +141,14 @@ struct TerminalScreen: View {
 
     // MARK: - Helpers
 
-    /// Resolves the cwd for this session (from history if recorded, else falls
-    /// back to the user's last-used folder or the server's home default).
+    /// Resolves the cwd for this session — prefers the **live** cwd reported
+    /// by the shell via OSC 7 (so the Files tab follows `cd`), then falls
+    /// back to the recorded launch cwd from history, then the user's last
+    /// folder, then `~`.
     private var cwd: String {
+        if let live = store.sessionCwds[sessionId], !live.isEmpty {
+            return live
+        }
         if let recorded = sessionHistory.entry(named: sessionName)?.cwd, !recorded.isEmpty {
             return recorded
         }

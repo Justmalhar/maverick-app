@@ -64,6 +64,7 @@ struct FileExplorerView: View {
             .background(.ultraThinMaterial)
 
             Divider().background(Theme.stroke).frame(height: 0.5)
+            breadcrumb
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -73,6 +74,78 @@ struct FileExplorerView: View {
                 projectIndex.index(path: rootPath, refresh: false, connection: connection)
             }
         }
+        // Re-index whenever the host TerminalScreen passes a new rootPath
+        // (typically because the shell emitted an OSC 7 cwd change).
+        .onChange(of: rootPath) { _, newRoot in
+            guard !newRoot.isEmpty, projectIndex.root != newRoot else { return }
+            expanded = [""]
+            projectIndex.index(path: newRoot, refresh: false, connection: connection)
+        }
+    }
+
+    // MARK: - Breadcrumb
+
+    /// Splits the current root path into clickable segments. Tapping a parent
+    /// segment re-indexes from that path so the user can navigate above the
+    /// session's launch cwd.
+    private var breadcrumb: some View {
+        let segments = breadcrumbSegments(for: rootPath)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { idx, segment in
+                    Button {
+                        let target = segment.absolutePath
+                        guard target != rootPath else { return }
+                        expanded = [""]
+                        projectIndex.index(path: target, refresh: false, connection: connection)
+                    } label: {
+                        Text(segment.label)
+                            .font(.system(size: 12, weight: idx == segments.count - 1 ? .semibold : .medium, design: .monospaced))
+                            .foregroundStyle(idx == segments.count - 1 ? Theme.textPrimary : Theme.textSecondary)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    if idx < segments.count - 1 {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Theme.textTertiary)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+        .overlay(Rectangle().fill(Theme.stroke).frame(height: 0.5), alignment: .bottom)
+    }
+
+    private struct Crumb {
+        let label: String
+        let absolutePath: String
+    }
+
+    /// Builds breadcrumb segments. `/Users/me/foo/bar` →
+    /// `[~, foo, bar]` with absolute paths `[/Users/me, /Users/me/foo, /Users/me/foo/bar]`.
+    private func breadcrumbSegments(for path: String) -> [Crumb] {
+        let p = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !p.isEmpty else { return [Crumb(label: "/", absolutePath: "/")] }
+        // Treat /Users/<u> as ~
+        let comps = p.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        var crumbs: [Crumb] = []
+        var soFar = ""
+        var i = 0
+        if comps.count >= 2 && comps[0] == "Users" {
+            soFar = "/" + comps[0] + "/" + comps[1]
+            crumbs.append(Crumb(label: "~", absolutePath: soFar))
+            i = 2
+        } else {
+            crumbs.append(Crumb(label: "/", absolutePath: "/"))
+        }
+        while i < comps.count {
+            soFar += "/" + comps[i]
+            crumbs.append(Crumb(label: comps[i], absolutePath: soFar))
+            i += 1
+        }
+        return crumbs
     }
 
     // MARK: - Content

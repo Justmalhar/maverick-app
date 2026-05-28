@@ -16,6 +16,9 @@ struct TerminalContainerView: UIViewControllerRepresentable {
         terminalVC.onResize = { cols, rows in
             connection.send(.resize(sessionId: sessionId, cols: cols, rows: rows))
         }
+        terminalVC.onCwdChange = { [weak store] cwd in
+            store?.updateCwd(sessionId: sessionId, cwd: cwd)
+        }
         store.registerOutputHandler(sessionId: sessionId) { data in
             terminalVC.feed(data: data)
         }

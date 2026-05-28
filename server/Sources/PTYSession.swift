@@ -57,6 +57,21 @@ final class PTYSession: @unchecked Sendable {
         source?.setEventHandler { [weak self] in self?.readOutput() }
         source?.setCancelHandler { [weak self] in self?.closeFd() }
         source?.resume()
+
+        // After the shell has a chance to render its first prompt, inject a
+        // tiny zsh hook that emits an OSC 7 escape on every prompt. iOS picks
+        // these up via SwiftTerm's hostCurrentDirectoryUpdate delegate so the
+        // Files tab can follow the user's `cd` commands. We clear the screen
+        // afterwards so the user doesn't see the setup line.
+        //
+        // Format of OSC 7: \e]7;file://<host><pwd>\e\\
+        // Reference: https://wezfurlong.org/wezterm/shell-integration.html
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            let setup =
+                #"if [ -n "${ZSH_VERSION:-}" ]; then typeset -ga precmd_functions; precmd_functions+=( _mvk_cwd ); _mvk_cwd() { printf '\e]7;file://%s%s\e\\' "${HOST:-}" "$PWD" }; _mvk_cwd; fi; clear"#
+                + "\n"
+            self?.write(Data(setup.utf8))
+        }
     }
 
     private func readOutput() {
