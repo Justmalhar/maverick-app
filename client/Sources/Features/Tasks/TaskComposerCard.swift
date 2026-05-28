@@ -3,6 +3,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct TaskComposerCard: View {
+    var initialAgent: CodingAgent = .claudeCode
+    var onSubmit: (() -> Void)? = nil
+
     @Environment(ConnectionManager.self) var connection
     @Environment(TaskLauncher.self) var launcher
     @Environment(AppSettings.self) var settings
@@ -15,6 +18,12 @@ struct TaskComposerCard: View {
     @State private var showFolderBrowser = false
     @State private var lastError: String?
     @FocusState private var focused: Bool
+
+    init(initialAgent: CodingAgent = .claudeCode, onSubmit: (() -> Void)? = nil) {
+        self.initialAgent = initialAgent
+        self.onSubmit = onSubmit
+        self._agent = State(initialValue: initialAgent)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -288,6 +297,7 @@ struct TaskComposerCard: View {
         task = ""
         attachments.clear()
         focused = false
+        onSubmit?()
     }
 
     private func sessionName(for task: String) -> String {
@@ -354,20 +364,48 @@ private struct AttachmentChip: View {
 struct AgentIcon: View {
     let agent: CodingAgent
     var size: CGFloat = 20
+    /// When set, forces monotone tinting (template rendering + foregroundStyle).
+    /// When nil, color-mode SVGs render in their native brand colors and
+    /// template-mode SVGs (e.g. Hermes) tint with Theme.textPrimary.
+    var color: Color? = nil
 
     var body: some View {
         if UIImage(named: agent.assetName) != nil {
+            iconImage
+        } else {
+            Image(systemName: "sparkles")
+                .font(.system(size: size * 0.7))
+                .foregroundStyle(color ?? Theme.textPrimary)
+                .frame(width: size, height: size)
+        }
+    }
+
+    @ViewBuilder
+    private var iconImage: some View {
+        // Three rendering paths:
+        //   1. Caller forced a tint → always template + tint.
+        //   2. Asset is a color SVG → original (brand colors).
+        //   3. Asset is template-style → template + default text color.
+        if let color {
+            Image(agent.assetName)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .foregroundStyle(color)
+        } else if agent.isColorIcon {
+            Image(agent.assetName)
+                .renderingMode(.original)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+        } else {
             Image(agent.assetName)
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)
                 .foregroundStyle(Theme.textPrimary)
-        } else {
-            Image(systemName: "sparkles")
-                .font(.system(size: size * 0.7))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: size, height: size)
         }
     }
 }

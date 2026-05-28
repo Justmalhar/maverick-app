@@ -145,38 +145,15 @@ struct SessionsListView: View {
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
 
-                // Filter menu — single glass circle button, no compose here (FAB handles that)
                 GlassEffectContainerIfAvailable {
-                    Menu {
-                        Section("View") {
-                            ForEach(FilterMode.allCases, id: \.label) { mode in
-                                Button { filterMode = mode } label: {
-                                    if filterMode == mode {
-                                        Label(mode.label, systemImage: "checkmark")
-                                    } else {
-                                        Label(mode.label, systemImage: mode.icon)
-                                    }
-                                }
-                            }
-                        }
-                        Divider()
-                        Button { showSettings = true } label: {
-                            Label("Settings", systemImage: "gearshape")
-                        }
-                        Button {
-                            newName = ""
-                            newCwd = settings.lastWorkingDir
-                            showNewSession = true
-                        } label: {
-                            Label("New Shell Session", systemImage: "terminal")
-                        }
-                    } label: {
-                        Image(systemName: "line.3.horizontal")
+                    Button { showSettings = true } label: {
+                        Image(systemName: "gearshape")
                             .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(Theme.textPrimary)
                             .frame(width: 36, height: 36)
                             .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
                     .glassCircleButtonStyle()
                 }
             }
@@ -472,8 +449,8 @@ private struct AgentSessionRow: View {
         }
     }
 
-    /// Active sessions: colored provider icon inside a tinted circle.
-    /// The color itself signals the session is live.
+    /// Active sessions: provider icon in its native brand colors inside a
+    /// tinted halo. The colored icon IS the 'live' signal.
     @ViewBuilder
     private var agentAvatar: some View {
         ZStack {
@@ -484,7 +461,8 @@ private struct AgentSessionRow: View {
                 .strokeBorder((agent?.accentColor ?? Theme.success).opacity(0.45), lineWidth: 0.8)
                 .frame(width: 42, height: 42)
             if let agent {
-                AgentIcon(agent: agent, size: 22, color: agent.accentColor)
+                // color: nil → render the SVG's native colors (brand).
+                AgentIcon(agent: agent, size: 22)
             } else {
                 Image(systemName: "terminal.fill")
                     .font(.system(size: 18, weight: .semibold))
@@ -569,15 +547,18 @@ private struct PreviousAgentSessionRow: View {
         }
     }
 
-    /// Closed sessions: monotone provider icon. No brand color — the
-    /// desaturation is the "this isn't running" signal.
+    /// Closed sessions: provider icon rendered with native brand colors but
+    /// at reduced opacity inside a neutral halo. Brand still recognizable,
+    /// but the dimming is the "this isn't running" signal.
     @ViewBuilder
     private var agentAvatar: some View {
         ZStack {
             Circle().fill(Color.white.opacity(0.04)).frame(width: 42, height: 42)
             Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8).frame(width: 42, height: 42)
             if let agent {
-                AgentIcon(agent: agent, size: 22, color: Theme.textSecondary)
+                AgentIcon(agent: agent, size: 22)
+                    .opacity(0.55)
+                    .saturation(0.7)
             } else {
                 Image(systemName: "terminal")
                     .font(.system(size: 18, weight: .regular))
