@@ -16,12 +16,42 @@ final class HookServer {
 
     /// Called for every non-permission AgentEvent.  Receives the event and the
     /// raw `session_id` string extracted from the hook payload (empty string if absent).
-    var onEvent: ((AgentEvent, String) -> Void)?
+    var onEvent: ((AgentEvent, String) -> Void)? {
+        get {
+            propertiesLock.lock()
+            defer { propertiesLock.unlock() }
+            return _onEvent
+        }
+        set {
+            propertiesLock.lock()
+            defer { propertiesLock.unlock() }
+            _onEvent = newValue
+        }
+    }
 
     // MARK: Private state
 
     private var listener: NWListener?
-    private var normalizer: AgentEventNormalizing?
+
+    var normalizer: AgentEventNormalizing? {
+        get {
+            propertiesLock.lock()
+            defer { propertiesLock.unlock() }
+            return _normalizer
+        }
+        set {
+            propertiesLock.lock()
+            defer { propertiesLock.unlock() }
+            _normalizer = newValue
+        }
+    }
+
+    // Thread-safe backing stores for normalizer and onEvent
+    private var _normalizer: AgentEventNormalizing?
+    private var _onEvent: ((AgentEvent, String) -> Void)?
+
+    // Thread-safe locks
+    private let propertiesLock = NSLock()
 
     // Pending PermissionRequest continuations keyed by requestId.
     private let pendingLock = NSLock()
@@ -30,7 +60,7 @@ final class HookServer {
     // MARK: Configuration
 
     func setNormalizer(_ normalizer: AgentEventNormalizing) {
-        self.normalizer = normalizer
+        self.normalizer = normalizer  // Uses the thread-safe computed property
     }
 
     // MARK: Lifecycle
@@ -42,6 +72,8 @@ final class HookServer {
         let nwPort = NWEndpoint.Port(rawValue: 7789)!
         let l = try NWListener(using: params, on: nwPort)
 
+        let ready = DispatchSemaphore(value: 0)
+
         l.newConnectionHandler = { [weak self] conn in
             self?.accept(conn)
         }
@@ -49,8 +81,10 @@ final class HookServer {
             switch state {
             case .ready:
                 NSLog("[HookServer] Listening on localhost:7789")
+                ready.signal()
             case .failed(let err):
                 NSLog("[HookServer] Listener failed: %@", String(describing: err))
+                ready.signal()
             default:
                 break
             }
@@ -58,8 +92,8 @@ final class HookServer {
         l.start(queue: .global())
         listener = l
 
-        // Brief pause to let the kernel bind the port before returning.
-        Thread.sleep(forTimeInterval: 0.05)
+        // Wait for listener to reach .ready or .failed state.
+        ready.wait()
     }
 
     func stop() {
