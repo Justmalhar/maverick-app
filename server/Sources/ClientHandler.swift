@@ -9,15 +9,28 @@ final class ClientHandler: @unchecked Sendable {
     private let sessionManager: SessionManager
     private let uploadStore: UploadStore
     private let listingService: DirectoryListingService
+    private let projectIndexer: ProjectIndexer
+    private let gitWrapper: GitWrapper
     private var attachedSessionId: UUID?
     let onDisconnect: () -> Void
 
-    init(id: UUID, connection: NWConnection, sessionManager: SessionManager, uploadStore: UploadStore, listingService: DirectoryListingService, onDisconnect: @escaping () -> Void) {
+    init(
+        id: UUID,
+        connection: NWConnection,
+        sessionManager: SessionManager,
+        uploadStore: UploadStore,
+        listingService: DirectoryListingService,
+        projectIndexer: ProjectIndexer,
+        gitWrapper: GitWrapper,
+        onDisconnect: @escaping () -> Void
+    ) {
         self.id = id
         self.connection = connection
         self.sessionManager = sessionManager
         self.uploadStore = uploadStore
         self.listingService = listingService
+        self.projectIndexer = projectIndexer
+        self.gitWrapper = gitWrapper
         self.onDisconnect = onDisconnect
     }
 
@@ -88,6 +101,27 @@ final class ClientHandler: @unchecked Sendable {
                 send(.directoryListing(requestId: requestId, path: result.path, entries: result.entries))
             } catch {
                 send(.directoryListingFailed(requestId: requestId, message: error.localizedDescription))
+            }
+
+        case .indexProject(let requestId, let path, let refresh):
+            projectIndexer.index(path: path, refresh: refresh) { [weak self] root, entries, complete in
+                self?.send(.indexChunk(requestId: requestId, root: root, entries: entries, complete: complete))
+            }
+
+        case .gitStatus(let requestId, let path):
+            do {
+                let status = try gitWrapper.status(path: path)
+                send(.gitStatusResult(requestId: requestId, status: status))
+            } catch {
+                send(.gitStatusFailed(requestId: requestId, message: error.localizedDescription))
+            }
+
+        case .gitDiff(let requestId, let path, let file, let staged):
+            do {
+                let result = try gitWrapper.diff(path: path, file: file, staged: staged)
+                send(.gitDiffResult(requestId: requestId, file: file, diff: result.diff, truncated: result.truncated))
+            } catch {
+                send(.gitDiffFailed(requestId: requestId, message: error.localizedDescription))
             }
         }
     }

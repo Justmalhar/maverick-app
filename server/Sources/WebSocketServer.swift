@@ -10,6 +10,8 @@ final class WebSocketServer {
     private let sessionManager: SessionManager
     private let uploadStore = UploadStore()
     private let listingService = DirectoryListingService()
+    private let projectIndexer = ProjectIndexer()
+    private let gitWrapper = GitWrapper()
     private let port: UInt16
 
     var actualPort: UInt16? { listener?.port?.rawValue }
@@ -66,6 +68,8 @@ final class WebSocketServer {
             sessionManager: sessionManager,
             uploadStore: uploadStore,
             listingService: listingService,
+            projectIndexer: projectIndexer,
+            gitWrapper: gitWrapper,
             onDisconnect: { [weak self] in self?.removeClient(id: id) }
         )
         clientsLock.lock()

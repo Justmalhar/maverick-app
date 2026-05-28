@@ -36,6 +36,12 @@ final class SessionStore {
         case .directoryListing, .directoryListingFailed:
             // Handled by DirectoryBrowserModel.
             break
+        case .indexChunk, .indexFailed:
+            // Handled by ProjectIndexModel.
+            break
+        case .gitStatusResult, .gitStatusFailed, .gitDiffResult, .gitDiffFailed:
+            // Handled by GitStatusModel.
+            break
         }
     }
 

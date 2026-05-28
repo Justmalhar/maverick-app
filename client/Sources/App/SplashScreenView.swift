@@ -7,11 +7,10 @@ struct SplashScreenView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 20) {
-                Image(systemName: "star.fill")
+                Image("MaverickLogo")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 72, height: 72)
-                    .foregroundStyle(.white)
+                    .frame(width: 140, height: 140)
 
                 Text("Maverick")
                     .font(.custom("Helvetica Neue", size: 34))

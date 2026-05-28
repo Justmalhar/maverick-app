@@ -10,6 +10,9 @@ private enum ClientMessageType: String, Codable {
     case closeSession = "close_session"
     case uploadFile = "upload_file"
     case listDirectory = "list_directory"
+    case indexProject = "index_project"
+    case gitStatus = "git_status"
+    case gitDiff = "git_diff"
 }
 
 private enum ServerMessageType: String, Codable {
@@ -23,6 +26,12 @@ private enum ServerMessageType: String, Codable {
     case fileUploadFailed = "file_upload_failed"
     case directoryListing = "directory_listing"
     case directoryListingFailed = "directory_listing_failed"
+    case indexChunk = "index_chunk"
+    case indexFailed = "index_failed"
+    case gitStatusResult = "git_status_result"
+    case gitStatusFailed = "git_status_failed"
+    case gitDiffResult = "git_diff_result"
+    case gitDiffFailed = "git_diff_failed"
 }
 
 public enum ClientMessage: Codable, Sendable {
@@ -42,8 +51,19 @@ public enum ClientMessage: Codable, Sendable {
     /// nil (home), `~`, `~/foo`, or an absolute path.
     case listDirectory(requestId: UUID, path: String?)
 
+    /// Walk a project directory and stream entries back in chunks. `refresh`
+    /// bypasses any cached index for this path.
+    case indexProject(requestId: UUID, path: String, refresh: Bool)
+
+    /// Run `git status` for the given path.
+    case gitStatus(requestId: UUID, path: String)
+
+    /// Run `git diff` for a single file inside the given repo. `staged=true`
+    /// produces `git diff --cached`.
+    case gitDiff(requestId: UUID, path: String, file: String, staged: Bool)
+
     private enum ClientCodingKeys: String, CodingKey {
-        case type, name, shell, sessionId, data, cols, rows, uploadId, filename, cwd, requestId, path
+        case type, name, shell, sessionId, data, cols, rows, uploadId, filename, cwd, requestId, path, refresh, file, staged
     }
 
     public init(from decoder: Decoder) throws {
@@ -84,6 +104,24 @@ public enum ClientMessage: Codable, Sendable {
                 requestId: try container.decode(UUID.self, forKey: .requestId),
                 path: try container.decodeIfPresent(String.self, forKey: .path)
             )
+        case .indexProject:
+            self = .indexProject(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                path: try container.decode(String.self, forKey: .path),
+                refresh: try container.decodeIfPresent(Bool.self, forKey: .refresh) ?? false
+            )
+        case .gitStatus:
+            self = .gitStatus(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                path: try container.decode(String.self, forKey: .path)
+            )
+        case .gitDiff:
+            self = .gitDiff(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                path: try container.decode(String.self, forKey: .path),
+                file: try container.decode(String.self, forKey: .file),
+                staged: try container.decodeIfPresent(Bool.self, forKey: .staged) ?? false
+            )
         }
     }
 
@@ -121,6 +159,21 @@ public enum ClientMessage: Codable, Sendable {
             try container.encode(ClientMessageType.listDirectory, forKey: .type)
             try container.encode(requestId, forKey: .requestId)
             try container.encodeIfPresent(path, forKey: .path)
+        case .indexProject(let requestId, let path, let refresh):
+            try container.encode(ClientMessageType.indexProject, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(path, forKey: .path)
+            try container.encode(refresh, forKey: .refresh)
+        case .gitStatus(let requestId, let path):
+            try container.encode(ClientMessageType.gitStatus, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(path, forKey: .path)
+        case .gitDiff(let requestId, let path, let file, let staged):
+            try container.encode(ClientMessageType.gitDiff, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(path, forKey: .path)
+            try container.encode(file, forKey: .file)
+            try container.encode(staged, forKey: .staged)
         }
     }
 }
@@ -137,8 +190,19 @@ public enum ServerMessage: Codable, Sendable {
     case directoryListing(requestId: UUID, path: String, entries: [DirectoryEntry])
     case directoryListingFailed(requestId: UUID, message: String)
 
+    /// Streamed chunk of project index entries. `complete=true` on the final chunk.
+    case indexChunk(requestId: UUID, root: String, entries: [IndexEntry], complete: Bool)
+    case indexFailed(requestId: UUID, message: String)
+
+    case gitStatusResult(requestId: UUID, status: GitStatus)
+    case gitStatusFailed(requestId: UUID, message: String)
+
+    case gitDiffResult(requestId: UUID, file: String, diff: String, truncated: Bool)
+    case gitDiffFailed(requestId: UUID, message: String)
+
     private enum ServerCodingKeys: String, CodingKey {
         case type, sessions, session, sessionId, data, message, uploadId, path, requestId, entries
+        case root, complete, status, file, diff, truncated
     }
 
     public init(from decoder: Decoder) throws {
@@ -184,6 +248,40 @@ public enum ServerMessage: Codable, Sendable {
                 requestId: try container.decode(UUID.self, forKey: .requestId),
                 message: try container.decode(String.self, forKey: .message)
             )
+        case .indexChunk:
+            self = .indexChunk(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                root: try container.decode(String.self, forKey: .root),
+                entries: try container.decode([IndexEntry].self, forKey: .entries),
+                complete: try container.decodeIfPresent(Bool.self, forKey: .complete) ?? false
+            )
+        case .indexFailed:
+            self = .indexFailed(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                message: try container.decode(String.self, forKey: .message)
+            )
+        case .gitStatusResult:
+            self = .gitStatusResult(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                status: try container.decode(GitStatus.self, forKey: .status)
+            )
+        case .gitStatusFailed:
+            self = .gitStatusFailed(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                message: try container.decode(String.self, forKey: .message)
+            )
+        case .gitDiffResult:
+            self = .gitDiffResult(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                file: try container.decode(String.self, forKey: .file),
+                diff: try container.decode(String.self, forKey: .diff),
+                truncated: try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+            )
+        case .gitDiffFailed:
+            self = .gitDiffFailed(
+                requestId: try container.decode(UUID.self, forKey: .requestId),
+                message: try container.decode(String.self, forKey: .message)
+            )
         }
     }
 
@@ -225,6 +323,34 @@ public enum ServerMessage: Codable, Sendable {
             try container.encode(entries, forKey: .entries)
         case .directoryListingFailed(let requestId, let message):
             try container.encode(ServerMessageType.directoryListingFailed, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(message, forKey: .message)
+        case .indexChunk(let requestId, let root, let entries, let complete):
+            try container.encode(ServerMessageType.indexChunk, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(root, forKey: .root)
+            try container.encode(entries, forKey: .entries)
+            try container.encode(complete, forKey: .complete)
+        case .indexFailed(let requestId, let message):
+            try container.encode(ServerMessageType.indexFailed, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(message, forKey: .message)
+        case .gitStatusResult(let requestId, let status):
+            try container.encode(ServerMessageType.gitStatusResult, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(status, forKey: .status)
+        case .gitStatusFailed(let requestId, let message):
+            try container.encode(ServerMessageType.gitStatusFailed, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(message, forKey: .message)
+        case .gitDiffResult(let requestId, let file, let diff, let truncated):
+            try container.encode(ServerMessageType.gitDiffResult, forKey: .type)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(file, forKey: .file)
+            try container.encode(diff, forKey: .diff)
+            try container.encode(truncated, forKey: .truncated)
+        case .gitDiffFailed(let requestId, let message):
+            try container.encode(ServerMessageType.gitDiffFailed, forKey: .type)
             try container.encode(requestId, forKey: .requestId)
             try container.encode(message, forKey: .message)
         }

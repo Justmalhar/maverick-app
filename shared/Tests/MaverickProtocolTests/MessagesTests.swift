@@ -19,14 +19,15 @@ final class MessagesTests: XCTestCase {
     }
 
     func testClientMessageCreateSessionRoundtrip() throws {
-        let msg = ClientMessage.createSession(name: "claude", shell: "/bin/zsh")
+        let msg = ClientMessage.createSession(name: "claude", shell: "/bin/zsh", cwd: "~/projects")
         let data = try encoder.encode(msg)
         let decoded = try decoder.decode(ClientMessage.self, from: data)
-        guard case .createSession(let name, let shell) = decoded else {
+        guard case .createSession(let name, let shell, let cwd) = decoded else {
             return XCTFail("wrong case")
         }
         XCTAssertEqual(name, "claude")
         XCTAssertEqual(shell, "/bin/zsh")
+        XCTAssertEqual(cwd, "~/projects")
     }
 
     func testServerMessageOutputRoundtrip() throws {
