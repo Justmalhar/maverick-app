@@ -55,6 +55,13 @@ struct MaverickRemoteApp: App {
                             showSplash = false
                         }
                     }
+                    .onChange(of: connection.state) { _, new in
+                        // Pre-warm the folder picker cache the moment we're online so
+                        // the very first tap on the folder chip is instant.
+                        if new == .connected {
+                            directoryBrowser.preflight(connection: connection)
+                        }
+                    }
                     .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                         isInBackground = false
                         autoConnectIfPossible()

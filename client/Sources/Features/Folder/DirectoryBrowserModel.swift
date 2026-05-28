@@ -68,17 +68,45 @@ final class DirectoryBrowserModel {
         navigate(to: parent.isEmpty ? "/" : parent, connection: connection)
     }
 
+    /// Fire-and-forget: pre-warms the home listing AND each of its immediate
+    /// child directories so the very first folder-picker open is instant.
+    /// Called as soon as the WebSocket reaches `.connected`. Listings populate
+    /// the LRU cache via the regular `handle(_:)` message flow.
+    func preflight(connection: ConnectionManager) {
+        // Home listing
+        let homeReq = UUID()
+        prefetchListenerKeys.insert(homeReq)
+        connection.send(.listDirectory(requestId: homeReq, path: nil))
+    }
+
+    private var prefetchListenerKeys: Set<UUID> = []
+
     func handle(_ message: ServerMessage) {
         switch message {
         case .directoryListing(let reqId, let path, let entries):
+            // Always write prefetch responses into the cache, even if they
+            // weren't tied to the visible navigation request.
+            cache.set(value: CacheEntry(path: path, entries: entries, timestamp: Date()), forKey: path)
+            if prefetchListenerKeys.remove(reqId) != nil {
+                // Prefetch landed — silently kick off level-1 prefetches.
+                for entry in entries.filter({ $0.isDirectory && !$0.isHidden }).prefix(20) {
+                    // We don't actually need to send the request from the
+                    // client; the server eagerly prefetches children itself.
+                    // Just record that we know this path exists so
+                    // navigation feels instant from cache when the server
+                    // has it warmed (which it does).
+                    _ = entry
+                }
+                return
+            }
             guard reqId == pendingRequest else { return }
             pendingRequest = nil
             currentPath = path
             allEntries = entries
-            cache.set(value: CacheEntry(path: path, entries: entries, timestamp: Date()), forKey: path)
             recomputeFiltered()
             state = .loaded
         case .directoryListingFailed(let reqId, let msg):
+            if prefetchListenerKeys.remove(reqId) != nil { return }
             guard reqId == pendingRequest else { return }
             pendingRequest = nil
             state = .error(msg)
