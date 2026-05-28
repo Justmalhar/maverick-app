@@ -2,6 +2,8 @@
 import SwiftUI
 import MaverickProtocol
 
+// MARK: - Main list view
+
 struct SessionsListView: View {
     @Environment(SessionStore.self) var store
     @Environment(ConnectionManager.self) var connection
@@ -12,17 +14,60 @@ struct SessionsListView: View {
     @Binding var path: NavigationPath
     @Binding var showSettings: Bool
 
+    @State private var showCompose = false
+    @State private var composeAgent: CodingAgent? = nil
+    @State private var filterMode: FilterMode = .all
     @State private var showNewSession = false
     @State private var newName = ""
     @State private var newCwd = ""
 
+    // Edit / multi-select state
+    @State private var isEditing = false
+    @State private var selectedSessionIds: Set<UUID> = []
+    @State private var selectedHistoryIds: Set<UUID> = []
+
+    private var selectedCount: Int { selectedSessionIds.count + selectedHistoryIds.count }
+
+    enum FilterMode: CaseIterable {
+        case all, active, previous
+        var label: String {
+            switch self {
+            case .all:      return "All"
+            case .active:   return "Active"
+            case .previous: return "Previous"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .all:      return "bubble.left.and.bubble.right.fill"
+            case .active:   return "circle.fill"
+            case .previous: return "clock.fill"
+            }
+        }
+    }
+
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            background
-            content
-            floatingActionButton
+        ZStack {
+            Theme.bg.ignoresSafeArea()
+            VStack(spacing: 0) {
+                navigationHeader
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if !isEditing {
+                            pinnedAgentsRow
+                            sessionDivider
+                        }
+                        sessionsList
+                        Spacer(minLength: 32)
+                    }
+                }
+                .scrollDismissesKeyboard(.interactively)
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showCompose) {
+            ComposeSheetContent(initialAgent: composeAgent) { showCompose = false }
+        }
         .alert("New Session", isPresented: $showNewSession) {
             TextField("Name (e.g. claude, build, logs)", text: $newName)
                 .textInputAutocapitalization(.never)
@@ -36,27 +81,6 @@ struct SessionsListView: View {
             Text("A new /bin/zsh session will start on your Mac in the chosen folder.")
         }
         .onAppear { connection.send(.listSessions) }
-    }
-
-    // MARK: - Pieces
-
-    private var background: some View {
-        Theme.bg.ignoresSafeArea()
-    }
-
-    private var content: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                header
-                TaskComposerCard()
-                activeSection
-                previousSection
-                Spacer(minLength: 110)
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 8)
-        }
-        .scrollDismissesKeyboard(.interactively)
         .onChange(of: launcher.launchedSessionId) { _, newValue in
             guard let newValue else { return }
             path.append(newValue)
@@ -64,133 +88,254 @@ struct SessionsListView: View {
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Sessions")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .foregroundStyle(Theme.textPrimary)
-            Spacer()
-            Button { showSettings = true } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(width: 38, height: 38)
-                    .background(Circle().fill(Color.white.opacity(0.06)))
-                    .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 0.5))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.top, 4)
-    }
+    // MARK: - Navigation header (transparent — blends with app background)
 
-    private var activeSection: some View {
-        Section(header: sectionHeader(
-            title: "Active",
-            count: store.sessions.count,
-            iconName: "circle.fill",
-            iconColor: Theme.success
-        )) {
-            if store.sessions.isEmpty {
-                emptyHint(text: "No sessions running. Tap + to start one.")
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(store.sessions) { session in
-                        ActiveRow(session: session) {
-                            store.activeSessionId = session.id
-                            path.append(session.id)
-                        } onClose: {
-                            connection.send(.closeSession(sessionId: session.id))
-                        }
+    private var navigationHeader: some View {
+        HStack(spacing: 8) {
+            if isEditing {
+                // Edit mode: glass Cancel pill on left, glass Delete pill on right
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        isEditing = false
+                        selectedSessionIds = []
+                        selectedHistoryIds = []
                     }
+                } label: {
+                    Text("Cancel")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Theme.textPrimary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .liquidGlassCapsule()
                 }
-            }
-        }
-    }
+                .buttonStyle(.plain)
 
-    private var previousSection: some View {
-        let activeNames = Set(store.sessions.map(\.name))
-        let prev = history.previous(excluding: activeNames)
-        return Group {
-            if !prev.isEmpty {
-                Section(header: sectionHeader(
-                    title: "Previous",
-                    count: prev.count,
-                    iconName: "clock.fill",
-                    iconColor: Theme.textTertiary
-                )) {
-                    VStack(spacing: 8) {
-                        ForEach(prev) { entry in
-                            PreviousRow(entry: entry) {
-                                resume(entry: entry)
-                            } onRemove: {
-                                history.remove(entry)
+                Spacer()
+                Text("Select Sessions")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+
+                Button {
+                    deleteSelected()
+                } label: {
+                    Text(selectedCount == 0 ? "Delete" : "Delete (\(selectedCount))")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(selectedCount > 0 ? Theme.danger : Theme.textTertiary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .liquidGlassCapsule()
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedCount == 0)
+            } else {
+                // Normal mode: glass Edit pill, transparent title, glass filter circle
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { isEditing = true }
+                } label: {
+                    Text("Edit")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Theme.textPrimary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .liquidGlassCapsule() // real glassEffect on iOS 26
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+                Text("Agents")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+
+                // Filter menu — single glass circle button, no compose here (FAB handles that)
+                GlassEffectContainerIfAvailable {
+                    Menu {
+                        Section("View") {
+                            ForEach(FilterMode.allCases, id: \.label) { mode in
+                                Button { filterMode = mode } label: {
+                                    if filterMode == mode {
+                                        Label(mode.label, systemImage: "checkmark")
+                                    } else {
+                                        Label(mode.label, systemImage: mode.icon)
+                                    }
+                                }
                             }
                         }
+                        Divider()
+                        Button { showSettings = true } label: {
+                            Label("Settings", systemImage: "gearshape")
+                        }
+                        Button {
+                            newName = ""
+                            newCwd = settings.lastWorkingDir
+                            showNewSession = true
+                        } label: {
+                            Label("New Shell Session", systemImage: "terminal")
+                        }
+                    } label: {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(Theme.textPrimary)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Circle())
                     }
+                    .glassCircleButtonStyle()
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        // Transparent — matches the pure-black app background seamlessly
+        .background(Color.clear)
+    }
+
+    // MARK: - Pinned agents row (center-aligned grid)
+
+    // Agents shown in the pinned row — excludes Hermes (available via compose sheet).
+    private let pinnedAgents: [CodingAgent] = CodingAgent.allCases.filter { $0 != .hermes }
+
+    private var pinnedAgentsRow: some View {
+        HStack(spacing: 0) {
+            // "+" button — starts a plain /bin/zsh session with no agent
+            PinnedTerminalButton {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                newName = ""
+                newCwd = settings.lastWorkingDir
+                showNewSession = true
+            }
+            .frame(maxWidth: .infinity)
+
+            ForEach(pinnedAgents) { agent in
+                PinnedAgentButton(agent: agent) {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    composeAgent = agent
+                    showCompose = true
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 16)
+    }
+
+    private var sessionDivider: some View {
+        Rectangle().fill(Theme.stroke).frame(height: 0.5)
+    }
+
+    // MARK: - Sessions list
+
+    private var sessionsList: some View {
+        LazyVStack(spacing: 0) {
+            if filterMode != .previous {
+                let active = store.sessions
+                if active.isEmpty && filterMode == .active {
+                    emptyState(icon: "terminal", text: "No active sessions",
+                               hint: "Tap an agent above or ✏️ to assign work")
+                } else {
+                    ForEach(active) { session in
+                        AgentSessionRow(
+                            session: session,
+                            isEditing: isEditing,
+                            isSelected: selectedSessionIds.contains(session.id),
+                            onTap: {
+                                if isEditing {
+                                    toggleSession(session.id)
+                                } else {
+                                    store.activeSessionId = session.id
+                                    path.append(session.id)
+                                }
+                            },
+                            onClose: { connection.send(.closeSession(sessionId: session.id)) }
+                        )
+                        insetDivider
+                    }
+                }
+            }
+
+            if filterMode != .active {
+                let activeNames = Set(store.sessions.map(\.name))
+                let prev = history.previous(excluding: activeNames)
+                if prev.isEmpty && filterMode == .previous {
+                    emptyState(icon: "clock", text: "No previous sessions",
+                               hint: "Completed sessions will appear here")
+                } else {
+                    ForEach(prev) { entry in
+                        PreviousAgentSessionRow(
+                            entry: entry,
+                            isEditing: isEditing,
+                            isSelected: selectedHistoryIds.contains(entry.id),
+                            onTap: {
+                                if isEditing {
+                                    toggleHistory(entry.id)
+                                } else {
+                                    resume(entry: entry)
+                                }
+                            },
+                            onRemove: { history.remove(entry) }
+                        )
+                        insetDivider
+                    }
+                }
+            }
+
+            if filterMode == .all && store.sessions.isEmpty {
+                let activeNames = Set(store.sessions.map(\.name))
+                if history.previous(excluding: activeNames).isEmpty {
+                    emptyState(icon: "bubble.left.and.bubble.right",
+                               text: "No sessions yet",
+                               hint: "Assign work to an agent above or tap ✏️")
                 }
             }
         }
     }
 
-    private var floatingActionButton: some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            newName = ""
-            newCwd = settings.lastWorkingDir
-            showNewSession = true
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Theme.onAccent)
-                .frame(width: 58, height: 58)
-                .background(Circle().fill(Theme.accent))
-                .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, 20)
-        .padding(.bottom, 24)
+    private var insetDivider: some View {
+        Rectangle()
+            .fill(Theme.stroke.opacity(0.6))
+            .frame(height: 0.5)
+            .padding(.leading, 78)
     }
 
-    private func sectionHeader(title: String, count: Int, iconName: String, iconColor: Color) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: iconName)
-                .font(.system(size: 8))
-                .foregroundStyle(iconColor)
-            Text(title.uppercased())
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Theme.textSecondary)
-                .tracking(0.8)
-            Text("\(count)")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(Theme.textTertiary)
-            Spacer()
+    private func emptyState(icon: String, text: String, hint: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon).font(.system(size: 36)).foregroundStyle(Theme.textTertiary)
+            Text(text).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+            Text(hint).font(.system(size: 13)).foregroundStyle(Theme.textTertiary).multilineTextAlignment(.center)
         }
-        .padding(.horizontal, 4)
-        .padding(.top, 8)
-        .padding(.bottom, 2)
+        .padding(48).frame(maxWidth: .infinity)
     }
 
-    private func emptyHint(text: String) -> some View {
-        HStack {
-            Text(text)
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textTertiary)
-            Spacer()
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Theme.stroke, lineWidth: 0.5)
-                .opacity(0.6)
-        )
+    // MARK: - Edit / select helpers
+
+    private func toggleSession(_ id: UUID) {
+        if selectedSessionIds.contains(id) { selectedSessionIds.remove(id) }
+        else { selectedSessionIds.insert(id) }
     }
 
-    /// `cwd` is taken from the alert's folder field; if blank, the server
-    /// falls back to $HOME.
+    private func toggleHistory(_ id: UUID) {
+        if selectedHistoryIds.contains(id) { selectedHistoryIds.remove(id) }
+        else { selectedHistoryIds.insert(id) }
+    }
+
+    private func deleteSelected() {
+        for id in selectedSessionIds {
+            connection.send(.closeSession(sessionId: id))
+        }
+        let activeNames = Set(store.sessions.map(\.name))
+        for entry in history.previous(excluding: activeNames) where selectedHistoryIds.contains(entry.id) {
+            history.remove(entry)
+        }
+        withAnimation(.snappy(duration: 0.2)) {
+            isEditing = false
+            selectedSessionIds = []
+            selectedHistoryIds = []
+        }
+    }
+
+    // MARK: - Session actions
+
     private func create(name: String, cwd: String = "") {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else { return }
@@ -198,86 +343,115 @@ struct SessionsListView: View {
         let cwdOpt: String? = trimmedCwd.isEmpty ? nil : trimmedCwd
         if !trimmedCwd.isEmpty { settings.lastWorkingDir = trimmedCwd }
         connection.send(.createSession(name: trimmedName, shell: "/bin/zsh", cwd: cwdOpt))
-        newName = ""
-        newCwd = ""
+        newName = ""; newCwd = ""
     }
 
-    /// Re-open a previous session. If the entry has an agent recorded, launch
-    /// that agent with its resume flag (`claude -c`, etc.) so the prior
-    /// conversation rehydrates from the agent's on-disk session store.
-    /// Otherwise this falls back to creating a plain shell session.
     private func resume(entry: PastSession) {
         let cwdOpt: String? = entry.cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
             .nonEmptyOrNil ?? settings.lastWorkingDir.nonEmptyOrNil
-
-        guard let agentId = entry.agentId,
-              let agent = CodingAgent(rawValue: agentId) else {
-            // No agent recorded — just open a shell with the same name.
+        guard let agentId = entry.agentId, let agent = CodingAgent(rawValue: agentId) else {
             connection.send(.createSession(name: entry.name, shell: "/bin/zsh", cwd: cwdOpt))
             return
         }
-
         let binary = settings.binary(for: agent)
-        launcher.enqueue(
-            sessionName: entry.name,
-            binary: binary,
-            task: nil,
-            agent: agent,
-            cwd: cwdOpt,
-            resume: true
-        )
+        launcher.enqueue(sessionName: entry.name, binary: binary, task: nil, agent: agent, cwd: cwdOpt, resume: true)
         connection.send(.createSession(name: entry.name, shell: "/bin/zsh", cwd: cwdOpt))
     }
 }
 
-private extension String {
-    var nonEmptyOrNil: String? {
-        let t = trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? nil : t
+// MARK: - Pinned terminal button (plain shell, no agent)
+
+private struct PinnedTerminalButton: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 7) {
+                Image(systemName: "plus")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(width: 58, height: 58)
+                    .glassInteractiveCircle()
+                Text("Terminal")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
-// MARK: - Rows
+// MARK: - Pinned agent button (center-aligned, Liquid Glass circle)
 
-private struct ActiveRow: View {
-    let session: SessionInfo
-    let onOpen: () -> Void
-    let onClose: () -> Void
+private struct PinnedAgentButton: View {
+    let agent: CodingAgent
+    let onTap: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Live indicator
-            ZStack {
-                Circle().fill(Theme.success.opacity(0.18)).frame(width: 28, height: 28)
-                Circle().fill(Theme.success).frame(width: 9, height: 9)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.name)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
+        Button(action: onTap) {
+            VStack(spacing: 7) {
+                AgentIcon(agent: agent, size: 26, color: agent.accentColor)
+                    .frame(width: 58, height: 58)
+                    // iOS 26: real Liquid Glass with interactive bounce/shimmer on tap.
+                    // iOS <26: frosted circle fallback.
+                    .glassInteractiveCircle()
+                Text(agent.shortName)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
-                Text("Started \(session.createdAt, format: .relative(presentation: .named))")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.textTertiary)
             }
-
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.textTertiary)
         }
-        .contentShape(Rectangle())
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Theme.stroke, lineWidth: 0.5)
-        )
-        .onTapGesture(perform: onOpen)
-        .swipeActions(edge: .trailing) {
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Active session row
+
+private struct AgentSessionRow: View {
+    let session: SessionInfo
+    let isEditing: Bool
+    let isSelected: Bool
+    let onTap: () -> Void
+    let onClose: () -> Void
+
+    private var agent: CodingAgent? {
+        CodingAgent.allCases.first { session.name.hasPrefix($0.rawValue) }
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                if isEditing {
+                    selectCircle(isSelected: isSelected)
+                }
+
+                agentAvatar
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    Text("Active · started \(session.createdAt, format: .relative(presentation: .named))")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 6)
+
+                if !isEditing {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary.opacity(0.6))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(role: .destructive, action: onClose) {
                 Label("Close", systemImage: "xmark.circle.fill")
             }
@@ -288,76 +462,175 @@ private struct ActiveRow: View {
             }
         }
     }
+
+    /// Active sessions: colored provider icon inside a tinted circle.
+    /// The color itself signals the session is live.
+    @ViewBuilder
+    private var agentAvatar: some View {
+        ZStack {
+            Circle()
+                .fill((agent?.accentColor ?? Theme.success).opacity(0.16))
+                .frame(width: 42, height: 42)
+            Circle()
+                .strokeBorder((agent?.accentColor ?? Theme.success).opacity(0.45), lineWidth: 0.8)
+                .frame(width: 42, height: 42)
+            if let agent {
+                AgentIcon(agent: agent, size: 22, color: agent.accentColor)
+            } else {
+                Image(systemName: "terminal.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Theme.success)
+            }
+        }
+    }
 }
 
-private struct PreviousRow: View {
+// MARK: - Previous session row
+
+private struct PreviousAgentSessionRow: View {
     let entry: PastSession
-    let onReopen: () -> Void
+    let isEditing: Bool
+    let isSelected: Bool
+    let onTap: () -> Void
     let onRemove: () -> Void
 
+    /// Prefer the recorded agentId; fall back to detecting the agent from the
+    /// session name's prefix so older entries (which didn't record the agent)
+    /// still get a provider icon.
     private var agent: CodingAgent? {
-        guard let id = entry.agentId else { return nil }
-        return CodingAgent(rawValue: id)
+        if let id = entry.agentId, let a = CodingAgent(rawValue: id) { return a }
+        return CodingAgent.allCases.first { entry.name.hasPrefix($0.rawValue) }
+    }
+
+    private var subtitle: String {
+        let whenStr = relativeWhen
+        guard let cwd = entry.cwd, !cwd.isEmpty else { return whenStr }
+        let shortCwd = cwd.split(separator: "/").suffix(2).joined(separator: "/")
+        return "\(shortCwd) · \(whenStr)"
     }
 
     private var relativeWhen: String {
         let date = entry.closedAt ?? entry.lastSeen
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return "Closed \(formatter.localizedString(for: date, relativeTo: Date()))"
-    }
-
-    private var subtitle: String {
-        guard let cwd = entry.cwd, !cwd.isEmpty else { return relativeWhen }
-        return "\(cwd)  •  \(relativeWhen)"
+        let f = RelativeDateTimeFormatter(); f.unitsStyle = .short
+        return f.localizedString(for: date, relativeTo: Date())
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(Color.white.opacity(0.04)).frame(width: 28, height: 28)
-                if let agent {
-                    AgentIcon(agent: agent, size: 16)
-                } else {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 11, weight: .semibold))
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                if isEditing {
+                    selectCircle(isSelected: isSelected)
+                }
+
+                agentAvatar
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.name)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: 13))
                         .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 6)
+
+                if !isEditing {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary.opacity(0.6))
                 }
             }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.name)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-            Text(agent != nil ? "Resume" : "Re-open")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
-        .contentShape(Rectangle())
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.surface.opacity(0.55))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Theme.stroke, lineWidth: 0.5)
-        )
-        .onTapGesture(perform: onReopen)
-        .contextMenu {
-            Button(action: onReopen) {
-                Label("Re-open", systemImage: "arrow.counterclockwise")
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive, action: onRemove) {
+                Label("Remove", systemImage: "trash")
             }
+        }
+        .contextMenu {
+            Button(action: onTap) { Label("Re-open", systemImage: "arrow.counterclockwise") }
             Button(role: .destructive, action: onRemove) {
                 Label("Remove from history", systemImage: "trash")
             }
         }
+    }
+
+    /// Closed sessions: monotone provider icon. No brand color — the
+    /// desaturation is the "this isn't running" signal.
+    @ViewBuilder
+    private var agentAvatar: some View {
+        ZStack {
+            Circle().fill(Color.white.opacity(0.04)).frame(width: 42, height: 42)
+            Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8).frame(width: 42, height: 42)
+            if let agent {
+                AgentIcon(agent: agent, size: 22, color: Theme.textSecondary)
+            } else {
+                Image(systemName: "terminal")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(Theme.textTertiary)
+            }
+        }
+    }
+}
+
+// MARK: - Shared select circle
+
+private func selectCircle(isSelected: Bool) -> some View {
+    ZStack {
+        Circle()
+            .strokeBorder(isSelected ? Theme.accent : Theme.textTertiary, lineWidth: 1.5)
+            .frame(width: 22, height: 22)
+        if isSelected {
+            Circle().fill(Theme.accent).frame(width: 22, height: 22)
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Theme.onAccent)
+        }
+    }
+}
+
+// MARK: - Compose sheet (internal — also used from ContentView's FAB)
+
+struct ComposeSheetContent: View {
+    let initialAgent: CodingAgent?
+    let onDone: () -> Void
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                TaskComposerCard(
+                    initialAgent: initialAgent ?? .claudeCode,
+                    onSubmit: { dismiss() }
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
+            }
+            .background(Theme.bg)
+            .navigationTitle("New Task")
+            .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Helpers
+
+private extension String {
+    var nonEmptyOrNil: String? {
+        let t = trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
     }
 }
