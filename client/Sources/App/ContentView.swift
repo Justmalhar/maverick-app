@@ -258,7 +258,9 @@ struct TerminalScreen: View {
         }
         .onChange(of: store.sessions) { _, newValue in
             if !newValue.contains(where: { $0.id == sessionId }) {
-                dismiss()
+                // Defer dismiss out of the synchronous onChange handler — calling it
+                // inline is not safe on iOS 16 targets.
+                Task { @MainActor in dismiss() }
                 return
             }
             // Reconcile local mode with server state if agentChatMode is being tracked
@@ -308,7 +310,8 @@ struct TerminalScreen: View {
 
     @ViewBuilder
     private var primaryTab: some View {
-        if agentChatMode == true {
+        // Guard against rendering AgentChatView before the session model exists in the store.
+        if agentChatMode == true, agentStore.session(for: sessionId) != nil {
             AgentChatView(sessionId: sessionId)
         } else {
             terminalTab
