@@ -29,6 +29,8 @@ final class MenuBarController: NSObject {
             NSLog("[Maverick] HookServer failed to start: %@", error.localizedDescription)
         }
 
+        HookConfigWriter.install()
+
         // Wire broadcaster → WebSocket broadcast to all connected clients
         let weakServer = server
         broadcaster.onEvent = { sessionId, event in
