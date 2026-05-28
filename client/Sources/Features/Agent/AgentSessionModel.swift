@@ -156,6 +156,10 @@ final class AgentSessionModel {
 
     private func flushBatch() {
         guard !completedBatch.isEmpty else { return }
+        // Finalize any in-progress streaming bubble before appending the batch so the
+        // tool batch always follows the current assistant segment, never interleaves inside it.
+        // (Tool call completions can arrive via hooks while stdout is still streaming.)
+        if streamingBubbleId != nil { finalizeStreamingBubble() }
         let batch = completedBatch
         completedBatch = []
         items.append(AgentChatItem(kind: .toolBatch(tools: batch, isCollapsed: true)))
@@ -164,8 +168,16 @@ final class AgentSessionModel {
     private func finalizeStreamingBubble() {
         guard let sid = streamingBubbleId else { return }
         streamingBubbleId = nil
-        guard let last = items.last, last.id == sid,
-              case .assistantBubble(let text, _) = last.kind else { return }
-        items[items.count - 1].kind = .assistantBubble(text: text, isStreaming: false)
+        // Fast path: streaming bubble is still the last item.
+        if let last = items.last, last.id == sid,
+           case .assistantBubble(let text, _) = last.kind {
+            items[items.count - 1].kind = .assistantBubble(text: text, isStreaming: false)
+            return
+        }
+        // Fallback scan: bubble was pushed off the tail (e.g. a toolBatch was flushed after it).
+        if let idx = items.firstIndex(where: { $0.id == sid }),
+           case .assistantBubble(let text, _) = items[idx].kind {
+            items[idx].kind = .assistantBubble(text: text, isStreaming: false)
+        }
     }
 }
