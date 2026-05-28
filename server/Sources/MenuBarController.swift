@@ -6,6 +6,7 @@ final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
     private var sessionManager = SessionManager()
     private var server: WebSocketServer?
+    private var hookServer: HookServer?
 
     func start() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -19,10 +20,18 @@ final class MenuBarController: NSObject {
         } catch {
             statusItem?.button?.title = "⚠ \(error.localizedDescription)"
         }
+
+        hookServer = HookServer()
+        do {
+            try hookServer?.start()
+        } catch {
+            NSLog("[Maverick] HookServer failed to start: %@", error.localizedDescription)
+        }
     }
 
     func stop() {
         server?.stop()
+        hookServer?.stop()
     }
 
     @objc private func showMenu() {

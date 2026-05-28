@@ -123,6 +123,23 @@ final class ClientHandler: @unchecked Sendable {
             } catch {
                 send(.gitDiffFailed(requestId: requestId, message: error.localizedDescription))
             }
+
+        case .createAgentSession:
+            // Agent session creation is handled in Task 10 (AgentEventBroadcaster).
+            send(.error(message: "Agent sessions not yet supported"))
+
+        case .switchSessionMode:
+            // Session mode switching is handled in Task 10.
+            send(.error(message: "Session mode switching not yet supported"))
+
+        case .agentInput:
+            // Agent input forwarding is handled in Task 10.
+            send(.error(message: "Agent input not yet supported"))
+
+        case .permissionResponse(let sessionId, let requestId, let allowed):
+            // Forward the permission decision to HookServer via the broadcast mechanism (Task 10).
+            // For now, no-op — HookServer.resolvePermission will be wired in Task 10.
+            _ = (sessionId, requestId, allowed)
         }
     }
 
