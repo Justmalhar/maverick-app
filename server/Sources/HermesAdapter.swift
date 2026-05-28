@@ -10,16 +10,16 @@ final class HermesAdapter: AgentEventNormalizing {
 
     func normalize(streamLine: Data) -> [AgentEvent] {
         guard !streamLine.isEmpty else { return [] }
-        let trimmed = streamLine
-            .split(separator: UInt8(ascii: "\r"), omittingEmptySubsequences: true)
-            .last ?? streamLine[...]
-        guard !trimmed.isEmpty else { return [] }
+        var line = streamLine[...]
+        if line.last == UInt8(ascii: "\r") { line = line.dropLast() }
+        guard !line.isEmpty else { return [] }
 
-        if let obj = try? JSONSerialization.jsonObject(with: Data(trimmed)) as? [String: Any] {
-            // Hermes may use role-qualified messages: { "role":"assistant", "content":"..." }
-            if (obj["role"] as? String) == "assistant",
-               let text = obj["content"] as? String, !text.isEmpty {
-                return [.tokenDelta(text: text)]
+        if let obj = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] {
+            // Skip non-assistant role messages (user, tool, system).
+            // Lines without a role field are assumed to be assistant output.
+            let role = obj["role"] as? String
+            if role != nil && role != "assistant" {
+                return []
             }
             if let text = obj["content"] as? String, !text.isEmpty {
                 return [.tokenDelta(text: text)]
@@ -30,7 +30,8 @@ final class HermesAdapter: AgentEventNormalizing {
             if let text = obj["message"] as? String, !text.isEmpty {
                 return [.tokenDelta(text: text)]
             }
-            if let _ = obj["error"] as? String {
+            if let errMsg = obj["error"] as? String {
+                NSLog("[HermesAdapter] error: %@", errMsg)
                 return [.sessionError(.unknown)]
             }
             if let done = obj["done"] as? Bool, done {
@@ -38,7 +39,7 @@ final class HermesAdapter: AgentEventNormalizing {
             }
         }
 
-        guard let text = String(data: Data(trimmed), encoding: .utf8),
+        guard let text = String(data: Data(line), encoding: .utf8),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return [] }
         return [.tokenDelta(text: text + "\n")]

@@ -6,8 +6,14 @@ import MaverickProtocol
 ///
 /// Codex does not expose a hook system; tool permission events are represented
 /// as a static `.statusBadge("Auto-approved", .info)` emitted alongside each
-/// toolCallStart as a second event in the same return array.
+/// toolCallStart in the same return array.
+///
+/// Tool call ID correlation: `pendingToolIDs` maps a stable Codex key to the UUID
+/// generated at toolCallStart so the matching toolCallComplete carries the same ID.
+/// The adapter is used from AgentSession's serial outputQueue — no lock needed.
 final class CodexAdapter: AgentEventNormalizing {
+
+    private var pendingToolIDs: [String: String] = [:]
 
     // MARK: - Stream normalization
 
@@ -30,9 +36,12 @@ final class CodexAdapter: AgentEventNormalizing {
 
         case "tool":
             let name = obj["name"] as? String ?? ""
+            let stableKey = (obj["id"] as? String) ?? name
+            let id = UUID().uuidString
+            pendingToolIDs[stableKey] = id
             let inputDict = obj["input"] as? [String: Any]
             let event = ToolCallEvent(
-                id: UUID().uuidString,
+                id: id,
                 tool: codexToolKind(from: name),
                 inputSummary: summarizeInput(name: name, input: inputDict),
                 result: nil,
@@ -41,17 +50,16 @@ final class CodexAdapter: AgentEventNormalizing {
                 fileDiffs: nil,
                 effort: nil
             )
-            // Return toolCallStart + auto-approve badge in the same batch — no deferral needed.
             return [.toolCallStart(event), .statusBadge("Auto-approved", .info)]
 
         case "tool_result":
             let name = obj["name"] as? String ?? ""
+            let stableKey = (obj["id"] as? String) ?? name
+            let id = pendingToolIDs.removeValue(forKey: stableKey) ?? UUID().uuidString
             let output = obj["output"] as? String
-            let rawDuration = obj["duration"] as? Int
-            // Codex may emit duration in ms or seconds; values < 10 are treated as seconds.
-            let durationMs = rawDuration.map { $0 < 10 ? $0 * 1000 : $0 }
+            let durationMs = obj["duration"] as? Int
             let event = ToolCallEvent(
-                id: UUID().uuidString,
+                id: id,
                 tool: codexToolKind(from: name),
                 inputSummary: "",
                 result: output,
@@ -67,6 +75,9 @@ final class CodexAdapter: AgentEventNormalizing {
             return [.turnStop(cost: cost, inputTokens: nil, outputTokens: nil, effortLevel: nil)]
 
         case "error":
+            if let msg = obj["message"] as? String {
+                NSLog("[CodexAdapter] error from codex: %@", msg)
+            }
             return [.sessionError(.unknown)]
 
         default:
