@@ -42,10 +42,14 @@ enum HookConfigWriter {
     private static func writeHooks() throws {
         let url = URL(fileURLWithPath: settingsPath)
 
-        // Load existing settings or start fresh
+        // Load existing settings or start fresh.
+        // Distinguish "file missing" (safe to create) from "file corrupt" (must not clobber).
         var settings: [String: Any]
-        if let data = try? Data(contentsOf: url),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        if FileManager.default.fileExists(atPath: settingsPath) {
+            let data = try Data(contentsOf: url)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
             settings = json
         } else {
             settings = [:]
