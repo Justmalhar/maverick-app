@@ -14,6 +14,12 @@ final class ClientHandler: @unchecked Sendable {
     private var attachedSessionId: UUID?
     let onDisconnect: () -> Void
 
+    private var hookServer: HookServer?
+
+    func setHookServer(_ hookServer: HookServer) {
+        self.hookServer = hookServer
+    }
+
     init(
         id: UUID,
         connection: NWConnection,
@@ -124,22 +130,28 @@ final class ClientHandler: @unchecked Sendable {
                 send(.gitDiffFailed(requestId: requestId, message: error.localizedDescription))
             }
 
-        case .createAgentSession:
-            // Agent session creation is handled in Task 10 (AgentEventBroadcaster).
-            send(.error(message: "Agent sessions not yet supported"))
+        case .createAgentSession(let name, let provider, let cwd):
+            do {
+                let info = try await sessionManager.createAgentSession(name: name, provider: provider, cwd: cwd)
+                send(.agentSessionCreated(session: info))
+                send(.sessionList(sessions: await sessionManager.listSessions()))
+            } catch {
+                send(.error(message: error.localizedDescription))
+            }
 
-        case .switchSessionMode:
-            // Session mode switching is handled in Task 10.
-            send(.error(message: "Session mode switching not yet supported"))
+        case .switchSessionMode(let sessionId, let mode):
+            do {
+                try await sessionManager.switchAgentSessionMode(sessionId: sessionId, mode: mode)
+            } catch {
+                send(.error(message: error.localizedDescription))
+            }
 
-        case .agentInput:
-            // Agent input forwarding is handled in Task 10.
-            send(.error(message: "Agent input not yet supported"))
+        case .agentInput(let sessionId, let text):
+            await sessionManager.sendAgentInput(sessionId: sessionId, text: text)
 
         case .permissionResponse(let sessionId, let requestId, let allowed):
-            // Forward the permission decision to HookServer via the broadcast mechanism (Task 10).
-            // For now, no-op — HookServer.resolvePermission will be wired in Task 10.
-            _ = (sessionId, requestId, allowed)
+            _ = sessionId   // routing is by requestId; sessionId is for client-side tracking only
+            hookServer?.resolvePermission(requestId: requestId.uuidString, allowed: allowed)
         }
     }
 

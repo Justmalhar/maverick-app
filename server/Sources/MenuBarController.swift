@@ -7,6 +7,7 @@ final class MenuBarController: NSObject {
     private var sessionManager = SessionManager()
     private var server: WebSocketServer?
     private var hookServer: HookServer?
+    private var broadcaster = AgentEventBroadcaster()
 
     func start() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -26,6 +27,36 @@ final class MenuBarController: NSObject {
             try hookServer?.start()
         } catch {
             NSLog("[Maverick] HookServer failed to start: %@", error.localizedDescription)
+        }
+
+        // Wire broadcaster → WebSocket broadcast to all connected clients
+        let weakServer = server
+        broadcaster.onEvent = { sessionId, event in
+            weakServer?.broadcastAgentEvent(sessionId: sessionId, event: event)
+        }
+
+        // Wire hook events: look up Maverick UUID from Claude session ID, then broadcast
+        let weakBroadcaster = broadcaster
+        hookServer?.onEvent = { [weak self] event, claudeSessionId in
+            guard let self else { return }
+            Task {
+                guard let maverickId = await self.sessionManager.resolveSessionId(forClaudeId: claudeSessionId) else {
+                    NSLog("[MenuBarController] Hook event for unknown Claude session: %@", claudeSessionId)
+                    return
+                }
+                weakBroadcaster.receive(event: event, for: maverickId)
+            }
+        }
+
+        // Register the broadcaster with SessionManager so agent session events flow through it
+        Task { [weak self] in
+            guard let self else { return }
+            await self.sessionManager.setBroadcaster(self.broadcaster)
+        }
+
+        // Register HookServer with the WebSocket server so it can be forwarded to ClientHandlers
+        if let hookServer {
+            server?.setHookServer(hookServer)
         }
     }
 

@@ -21,6 +21,26 @@ final class WebSocketServer {
         self.port = port
     }
 
+    /// Broadcast a normalized agent event to all connected clients.
+    func broadcastAgentEvent(sessionId: UUID, event: AgentEvent) {
+        clientsLock.lock()
+        let snapshot = Array(clients.values)
+        clientsLock.unlock()
+        snapshot.forEach { $0.send(.agentEvent(sessionId: sessionId, event: event)) }
+    }
+
+    /// Inject the HookServer reference into all currently-connected (and future) ClientHandlers.
+    func setHookServer(_ hookServer: HookServer) {
+        clientsLock.lock()
+        let snapshot = Array(clients.values)
+        clientsLock.unlock()
+        snapshot.forEach { $0.setHookServer(hookServer) }
+        // Store for future connections
+        pendingHookServer = hookServer
+    }
+
+    private var pendingHookServer: HookServer?
+
     func start() throws {
         let params = NWParameters.tcp
         let wsOpts = NWProtocolWebSocket.Options()
@@ -72,6 +92,9 @@ final class WebSocketServer {
             gitWrapper: gitWrapper,
             onDisconnect: { [weak self] in self?.removeClient(id: id) }
         )
+        if let hookServer = pendingHookServer {
+            handler.setHookServer(hookServer)
+        }
         clientsLock.lock()
         clients[id] = handler
         clientsLock.unlock()

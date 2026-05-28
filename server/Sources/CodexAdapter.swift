@@ -50,7 +50,7 @@ final class CodexAdapter: AgentEventNormalizing {
                 fileDiffs: nil,
                 effort: nil
             )
-            return [.toolCallStart(event), .statusBadge("Auto-approved", .info)]
+            return [.toolCallStart(event), .statusBadge(text: "Auto-approved", kind: .info)]
 
         case "tool_result":
             let name = obj["name"] as? String ?? ""
