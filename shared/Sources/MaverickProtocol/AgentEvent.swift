@@ -144,7 +144,7 @@ public enum ToolKind: Codable, Sendable, Equatable {
         case .scheduleWakeup: return "scheduleWakeup"
         case .remoteTrigger: return "remoteTrigger"
         case .shareOnboardingGuide: return "shareOnboardingGuide"
-        case .custom(let name): return "custom:\(name)"
+        case .custom(let name): return name
         }
     }
 
@@ -153,8 +153,6 @@ public enum ToolKind: Codable, Sendable, Equatable {
         let raw = try container.decode(String.self)
         if let known = ToolKind.knownCases[raw] {
             self = known
-        } else if raw.hasPrefix("custom:") {
-            self = .custom(String(raw.dropFirst("custom:".count)))
         } else {
             self = .custom(raw)
         }
@@ -305,7 +303,6 @@ public enum AgentEvent: Codable, Sendable {
         case event, events
         // permission
         case tool, permissionEvent
-        case requestId, inputSummary, ruleMatched
         // permission denied
         // tool is reused, reason is reused
         // subagent
@@ -315,7 +312,7 @@ public enum AgentEvent: Codable, Sendable {
         // worktree
         case name, branch, path
         // notification
-        case notificationType = "notification_type", message
+        case notificationType, message
         // badge
         case kind
         // turn stop
