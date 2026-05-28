@@ -178,9 +178,21 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
                 source: source
             )
 
+        case "SessionEnd":
+            let cwd = hookPayload["cwd"] as? String ?? ""
+            let source = hookPayload["source"] as? String ?? ""
+            let reason = SessionEndReason(rawValue: source) ?? .other
+            return .sessionEnd(reason: reason)
+
+        case "WorktreeRemove":
+            let worktreePath = hookPayload["worktree_path"] as? String ?? ""
+            return .worktreeRemoved(path: worktreePath)
+
         case "Notification":
             let message = hookPayload["message"] as? String ?? ""
-            return .notification(type: .permissionPrompt, message: message)
+            let notifTypeStr = hookPayload["notification_type"] as? String ?? ""
+            let notifType = NotificationType(rawValue: notifTypeStr) ?? .permissionPrompt
+            return .notification(type: notifType, message: message)
 
         case "TaskCreated":
             let taskId = hookPayload["task_id"] as? String ?? UUID().uuidString

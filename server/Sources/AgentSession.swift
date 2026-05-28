@@ -42,6 +42,7 @@ final class AgentSession: @unchecked Sendable {
 
     private let lock = NSLock()
     private let outputQueue = DispatchQueue(label: "AgentSession.output", qos: .utility)
+    private var lineBuffer = Data()
 
     // MARK: - Init
 
@@ -128,7 +129,9 @@ final class AgentSession: @unchecked Sendable {
         // Close stdin so the child process sees EOF
         try? stdinPipe?.fileHandleForWriting.close()
         stdinPipe = nil
+        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         stdoutPipe = nil
+        lineBuffer.removeAll()
     }
 
     // MARK: - Private: terminal launch
@@ -175,14 +178,10 @@ final class AgentSession: @unchecked Sendable {
             self?.onExit?()
         }
 
-        // Read stdout line-by-line on background queue
+        // Read stdout on background queue; processOutput handles EOF (empty data).
         stdoutPipeLocal.fileHandleForReading.readabilityHandler = { [weak self] handle in
             guard let self else { return }
             let data = handle.availableData
-            guard !data.isEmpty else {
-                handle.readabilityHandler = nil
-                return
-            }
             self.processOutput(data)
         }
 
@@ -220,20 +219,22 @@ final class AgentSession: @unchecked Sendable {
 
     // MARK: - Private: stdout processing
 
-    /// Process raw stdout data: split on newlines and normalize each line.
+    /// Process raw stdout data: accumulate into lineBuffer and dispatch complete lines.
     private func processOutput(_ data: Data) {
-        // Buffer splitting on newline — handles partial lines by accumulating.
-        // For simplicity: each `availableData` call typically ends on a newline boundary
-        // when the child writes complete lines. We split defensively here.
-        let lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
-        for lineData in lines {
-            guard !lineData.isEmpty else { continue }
+        guard !data.isEmpty else {
+            // EOF — clear buffer and stop handler
+            stdoutPipe?.fileHandleForReading.readabilityHandler = nil
+            return
+        }
+        lineBuffer.append(data)
+        // Process all complete lines
+        while let newlineIndex = lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
+            let lineData = lineBuffer[lineBuffer.startIndex..<newlineIndex]
+            lineBuffer = lineBuffer.dropFirst(newlineIndex - lineBuffer.startIndex + 1)
+            if lineData.isEmpty { continue }
             if let event = normalizer.normalize(streamLine: Data(lineData)) {
-                // Capture claudeSessionId from SessionStart for future --continue
                 if case .sessionStart(let id, _, _, _, _) = event {
-                    lock.lock()
-                    claudeSessionId = id
-                    lock.unlock()
+                    lock.lock(); claudeSessionId = id; lock.unlock()
                 }
                 onAgentEvent?(event)
             }
