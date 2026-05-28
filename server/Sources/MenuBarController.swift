@@ -4,10 +4,10 @@ import MaverickProtocol
 
 final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
-    private var sessionManager = SessionManager()
+    private let broadcaster = AgentEventBroadcaster()
+    private lazy var sessionManager = SessionManager(broadcaster: broadcaster)
     private var server: WebSocketServer?
     private var hookServer: HookServer?
-    private var broadcaster = AgentEventBroadcaster()
 
     func start() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -46,12 +46,6 @@ final class MenuBarController: NSObject {
                 }
                 weakBroadcaster.receive(event: event, for: maverickId)
             }
-        }
-
-        // Register the broadcaster with SessionManager so agent session events flow through it
-        Task { [weak self] in
-            guard let self else { return }
-            await self.sessionManager.setBroadcaster(self.broadcaster)
         }
 
         // Register HookServer with the WebSocket server so it can be forwarded to ClientHandlers

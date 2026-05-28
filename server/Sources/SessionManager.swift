@@ -15,15 +15,17 @@ actor SessionManager {
 
     private var onSessionClosed: ((UUID) -> Void)?
 
-    // Set once after MenuBarController creates the broadcaster.
-    // Captured by each AgentSession.onAgentEvent closure at creation time.
-    private var broadcaster: AgentEventBroadcaster?
+    // Passed at init time so there is never a window where a newly-created
+    // agent session can fire events before the broadcaster is registered.
+    private let broadcaster: AgentEventBroadcaster
 
-    // MARK: - Configuration
+    // MARK: - Init
 
-    func setBroadcaster(_ broadcaster: AgentEventBroadcaster) {
+    init(broadcaster: AgentEventBroadcaster) {
         self.broadcaster = broadcaster
     }
+
+    // MARK: - Configuration
 
     func setClosedHandler(_ handler: @escaping (UUID) -> Void) {
         onSessionClosed = handler
@@ -84,10 +86,13 @@ actor SessionManager {
     func closeSession(id: UUID) {
         if let pty = sessions.removeValue(forKey: id) {
             pty.terminate()
+            onSessionClosed?(id)
         } else if let ag = agentSessions.removeValue(forKey: id) {
+            // terminate() fires onExit → handleAgentExit, but the session
+            // is already removed so handleAgentExit will not fire onSessionClosed again.
             ag.terminate()
+            onSessionClosed?(id)
         }
-        onSessionClosed?(id)
     }
 
     // MARK: - Agent session API
@@ -98,13 +103,13 @@ actor SessionManager {
         let normalizer = makeNormalizer(for: provider)
         let session = AgentSession(sessionId: sessionId, provider: provider,
                                    mode: .chat, normalizer: normalizer, cwd: cwd)
-        let capturedBroadcaster = broadcaster
+        let capturedBroadcaster = broadcaster  // capture strong reference, no race
 
         session.onAgentEvent = { [weak self] event in
             if case .sessionStart(let claudeId, _, _, _, _) = event {
                 Task { [weak self] in await self?.registerClaudeId(claudeId, for: sessionId) }
             }
-            capturedBroadcaster?.receive(event: event, for: sessionId)
+            capturedBroadcaster.receive(event: event, for: sessionId)
         }
         session.onExit = { [weak self] in
             Task { await self?.handleAgentExit(id: sessionId) }
@@ -154,12 +159,17 @@ actor SessionManager {
     }
 
     private func handleExit(id: UUID) {
-        sessions.removeValue(forKey: id)
-        onSessionClosed?(id)
+        if sessions.removeValue(forKey: id) != nil {
+            onSessionClosed?(id)
+        }
     }
 
     private func handleAgentExit(id: UUID) {
-        agentSessions.removeValue(forKey: id)
-        onSessionClosed?(id)
+        // Only fire if the session is still registered — guards against double-fire
+        // when closeSession() removes the entry and also calls terminate() which
+        // triggers this handler via onExit.
+        if agentSessions.removeValue(forKey: id) != nil {
+            onSessionClosed?(id)
+        }
     }
 }
