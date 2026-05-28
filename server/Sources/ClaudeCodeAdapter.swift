@@ -8,11 +8,11 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
 
     // MARK: - Stream-JSON normalization
 
-    func normalize(streamLine: Data) -> AgentEvent? {
+    func normalize(streamLine: Data) -> [AgentEvent] {
         guard !streamLine.isEmpty,
               let obj = try? JSONSerialization.jsonObject(with: streamLine) as? [String: Any],
               let type = obj["type"] as? String
-        else { return nil }
+        else { return [] }
 
         switch type {
         case "stream":
@@ -22,37 +22,37 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
                 let delta = event["delta"] as? [String: Any],
                 (delta["type"] as? String) == "text_delta",
                 let text = delta["text"] as? String
-            else { return nil }
-            return .tokenDelta(text: text)
+            else { return [] }
+            return [.tokenDelta(text: text)]
 
         case "assistant":
             // { type:"assistant", message: { content: [ { type:"text", text:"..." } ] } }
             let text = extractAssistantText(from: obj)
-            guard !text.isEmpty else { return nil }
-            return .assistantMessage(text: text)
+            guard !text.isEmpty else { return [] }
+            return [.assistantMessage(text: text)]
 
         case "result":
             // { type:"result", total_cost_usd: 0.001, total_input_tokens: 100, total_output_tokens: 50 }
             let cost = obj["total_cost_usd"] as? Double
             let inputTokens = obj["total_input_tokens"] as? Int
             let outputTokens = obj["total_output_tokens"] as? Int
-            return .turnStop(cost: cost, inputTokens: inputTokens, outputTokens: outputTokens, effortLevel: nil)
+            return [.turnStop(cost: cost, inputTokens: inputTokens, outputTokens: outputTokens, effortLevel: nil)]
 
         case "user":
             // { type:"user", message: { content: [ { type:"text", text:"..." } ] } }
             let text = extractUserText(from: obj)
-            guard !text.isEmpty else { return nil }
-            return .userMessage(text: text)
+            guard !text.isEmpty else { return [] }
+            return [.userMessage(text: text)]
 
         default:
-            return nil
+            return []
         }
     }
 
     // MARK: - Hook payload normalization
 
-    func normalize(hookPayload: [String: Any]) -> AgentEvent? {
-        guard let hookEventName = hookPayload["hook_event_name"] as? String else { return nil }
+    func normalize(hookPayload: [String: Any]) -> [AgentEvent] {
+        guard let hookEventName = hookPayload["hook_event_name"] as? String else { return [] }
 
         switch hookEventName {
         case "PreToolUse":
@@ -70,7 +70,7 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
                 fileDiffs: nil,
                 effort: effortLevel(from: effortDict)
             )
-            return .toolCallStart(event)
+            return [.toolCallStart(event)]
 
         case "PostToolUse":
             let toolName = hookPayload["tool_name"] as? String ?? ""
@@ -89,7 +89,7 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
                 fileDiffs: parseDiffs(toolName, toolResult),
                 effort: effortLevel(from: effortDict)
             )
-            return .toolCallComplete(event)
+            return [.toolCallComplete(event)]
 
         case "PostToolUseFailure":
             let toolName = hookPayload["tool_name"] as? String ?? ""
@@ -106,11 +106,11 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
                 fileDiffs: nil,
                 effort: nil
             )
-            return .toolCallFailed(event)
+            return [.toolCallFailed(event)]
 
         case "PostToolBatch":
             guard let toolCallsArr = hookPayload["tool_calls"] as? [[String: Any]] else {
-                return .toolBatchComplete([])
+                return [.toolBatchComplete([])]
             }
             let events = toolCallsArr.map { call -> ToolCallEvent in
                 let toolName = call["tool_name"] as? String ?? ""
@@ -130,7 +130,7 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
                     effort: effortLevel(from: effortDict)
                 )
             }
-            return .toolBatchComplete(events)
+            return [.toolBatchComplete(events)]
 
         case "PermissionRequest":
             let requestId = hookPayload["request_id"] as? String ?? UUID().uuidString
@@ -143,26 +143,26 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
                 inputSummary: summarizeInput(toolInput),
                 ruleMatched: ruleMatched
             )
-            return .permissionRequest(permEvent)
+            return [.permissionRequest(permEvent)]
 
         case "PermissionDenied":
             let toolName = hookPayload["tool_name"] as? String ?? ""
             let denialReason = hookPayload["denial_reason"] as? String ?? ""
-            return .permissionDenied(tool: toolName, reason: denialReason)
+            return [.permissionDenied(tool: toolName, reason: denialReason)]
 
         case "Stop":
-            return .turnStop(cost: nil, inputTokens: nil, outputTokens: nil, effortLevel: nil)
+            return [.turnStop(cost: nil, inputTokens: nil, outputTokens: nil, effortLevel: nil)]
 
         case "SubagentStart":
             let agentId = hookPayload["agent_id"] as? String ?? UUID().uuidString
             let agentType = hookPayload["agent_type"] as? String ?? ""
             let parentSessionId = hookPayload["parent_session_id"] as? String ?? ""
-            return .subagentStart(id: agentId, agentType: agentType, parentSessionId: parentSessionId)
+            return [.subagentStart(id: agentId, agentType: agentType, parentSessionId: parentSessionId)]
 
         case "SubagentStop":
             let agentId = hookPayload["agent_id"] as? String ?? UUID().uuidString
             let agentType = hookPayload["agent_type"] as? String ?? ""
-            return .subagentStop(id: agentId, agentType: agentType)
+            return [.subagentStop(id: agentId, agentType: agentType)]
 
         case "SessionStart":
             let sessionId = hookPayload["session_id"] as? String ?? UUID().uuidString
@@ -170,13 +170,13 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
             let model = hookPayload["model"] as? String
             let sourceRaw = hookPayload["source"] as? String ?? "startup"
             let source = SessionSource(rawValue: sourceRaw) ?? .startup
-            return .sessionStart(
+            return [.sessionStart(
                 id: sessionId,
                 provider: .claudeCode,
                 cwd: cwd,
                 model: model,
                 source: source
-            )
+            )]
 
         case "SessionEnd":
             // Claude Code sends `source` whose values ("clear","resume","logout","promptExit")
@@ -184,50 +184,50 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
             // two enums are distinct; coincidence in shared values ("clear","resume") is expected.
             let reasonRaw = hookPayload["source"] as? String ?? ""
             let reason = SessionEndReason(rawValue: reasonRaw) ?? .other
-            return .sessionEnd(reason: reason)
+            return [.sessionEnd(reason: reason)]
 
         case "WorktreeRemove":
             let worktreePath = hookPayload["worktree_path"] as? String ?? ""
-            return .worktreeRemoved(path: worktreePath)
+            return [.worktreeRemoved(path: worktreePath)]
 
         case "Notification":
             let message = hookPayload["message"] as? String ?? ""
             let notifTypeStr = hookPayload["notification_type"] as? String ?? ""
             let notifType = NotificationType(rawValue: notifTypeStr) ?? .permissionPrompt
-            return .notification(type: notifType, message: message)
+            return [.notification(type: notifType, message: message)]
 
         case "TaskCreated":
             let taskId = hookPayload["task_id"] as? String ?? UUID().uuidString
             let taskTitle = hookPayload["task_title"] as? String ?? ""
-            return .taskCreated(id: taskId, title: taskTitle)
+            return [.taskCreated(id: taskId, title: taskTitle)]
 
         case "TaskCompleted":
             let taskId = hookPayload["task_id"] as? String ?? UUID().uuidString
-            return .taskCompleted(id: taskId)
+            return [.taskCompleted(id: taskId)]
 
         case "PreCompact":
-            return .compactionStarted
+            return [.compactionStarted]
 
         case "PostCompact":
-            return .compactionComplete
+            return [.compactionComplete]
 
         case "WorktreeCreate":
             let worktreeName = hookPayload["worktree_name"] as? String ?? ""
             let baseBranch = hookPayload["base_branch"] as? String ?? ""
-            return .worktreeCreated(name: worktreeName, branch: baseBranch)
+            return [.worktreeCreated(name: worktreeName, branch: baseBranch)]
 
         case "CwdChanged":
             let from = hookPayload["previous_cwd"] as? String ?? ""
             let to = hookPayload["cwd"] as? String ?? ""
-            return .cwdChanged(from: from, to: to)
+            return [.cwdChanged(from: from, to: to)]
 
         case "StopFailure":
             let failureType = hookPayload["failure_type"] as? String ?? ""
             let reason = mapFailureType(failureType)
-            return .sessionError(reason)
+            return [.sessionError(reason)]
 
         default:
-            return nil
+            return []
         }
     }
 

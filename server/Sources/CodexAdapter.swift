@@ -5,38 +5,28 @@ import MaverickProtocol
 /// Translates `codex --json` stdout lines into canonical `AgentEvent` values.
 ///
 /// Codex does not expose a hook system; tool permission events are represented
-/// as a static `.statusBadge("Auto-approved", .info)` emitted after each tool call.
-/// A single-slot `pendingEvent` dequeues the badge on the next `normalize` call.
-/// This is safe without a lock because `CodexAdapter` is used from `AgentSession`'s
-/// serial `outputQueue` — only one caller at a time.
+/// as a static `.statusBadge("Auto-approved", .info)` emitted alongside each
+/// toolCallStart as a second event in the same return array.
 final class CodexAdapter: AgentEventNormalizing {
-
-    private var pendingEvent: AgentEvent?
 
     // MARK: - Stream normalization
 
-    func normalize(streamLine: Data) -> AgentEvent? {
-        // Flush any pending badge event before parsing the next line
-        if let pending = pendingEvent {
-            pendingEvent = nil
-            return pending
-        }
-
+    func normalize(streamLine: Data) -> [AgentEvent] {
         guard !streamLine.isEmpty,
               let obj = try? JSONSerialization.jsonObject(with: streamLine) as? [String: Any],
               let type = obj["type"] as? String
-        else { return nil }
+        else { return [] }
 
         switch type {
         case "output":
-            guard let text = obj["text"] as? String, !text.isEmpty else { return nil }
-            return .tokenDelta(text: text)
+            guard let text = obj["text"] as? String, !text.isEmpty else { return [] }
+            return [.tokenDelta(text: text)]
 
         case "message":
             guard (obj["role"] as? String) == "assistant",
                   let content = obj["content"] as? String, !content.isEmpty
-            else { return nil }
-            return .tokenDelta(text: content)
+            else { return [] }
+            return [.tokenDelta(text: content)]
 
         case "tool":
             let name = obj["name"] as? String ?? ""
@@ -51,14 +41,14 @@ final class CodexAdapter: AgentEventNormalizing {
                 fileDiffs: nil,
                 effort: nil
             )
-            // Queue the auto-approve badge to emit on the next normalize call
-            pendingEvent = .statusBadge("Auto-approved", .info)
-            return .toolCallStart(event)
+            // Return toolCallStart + auto-approve badge in the same batch — no deferral needed.
+            return [.toolCallStart(event), .statusBadge("Auto-approved", .info)]
 
         case "tool_result":
             let name = obj["name"] as? String ?? ""
             let output = obj["output"] as? String
             let rawDuration = obj["duration"] as? Int
+            // Codex may emit duration in ms or seconds; values < 10 are treated as seconds.
             let durationMs = rawDuration.map { $0 < 10 ? $0 * 1000 : $0 }
             let event = ToolCallEvent(
                 id: UUID().uuidString,
@@ -70,23 +60,23 @@ final class CodexAdapter: AgentEventNormalizing {
                 fileDiffs: nil,
                 effort: nil
             )
-            return .toolCallComplete(event)
+            return [.toolCallComplete(event)]
 
         case "done":
             let cost = obj["cost"] as? Double
-            return .turnStop(cost: cost, inputTokens: nil, outputTokens: nil, effortLevel: nil)
+            return [.turnStop(cost: cost, inputTokens: nil, outputTokens: nil, effortLevel: nil)]
 
         case "error":
-            return .sessionError(.unknown)
+            return [.sessionError(.unknown)]
 
         default:
-            return nil
+            return []
         }
     }
 
     // MARK: - Hook normalization (unsupported)
 
-    func normalize(hookPayload: [String: Any]) -> AgentEvent? { nil }
+    func normalize(hookPayload: [String: Any]) -> [AgentEvent] { [] }
 
     // MARK: - Private helpers
 

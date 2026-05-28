@@ -246,7 +246,8 @@ final class AgentSession: @unchecked Sendable {
             let lineData = lineBuffer[lineBuffer.startIndex..<newlineIndex]
             lineBuffer = lineBuffer.dropFirst(newlineIndex - lineBuffer.startIndex + 1)
             if lineData.isEmpty { continue }
-            if let event = normalizer.normalize(streamLine: Data(lineData)) {
+            let events = normalizer.normalize(streamLine: Data(lineData))
+            for event in events {
                 if case .sessionStart(let id, _, _, _, _) = event {
                     claudeSessionId = id
                 }

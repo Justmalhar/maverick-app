@@ -229,9 +229,11 @@ final class HookServer {
             // Extract requestId — Claude Code uses "request_id" (snake_case).
             let requestId = jsonObj["request_id"] as? String ?? UUID().uuidString
 
-            // Normalize to AgentEvent if a normalizer is registered.
-            if let normalizer, let event = normalizer.normalize(hookPayload: jsonObj) {
-                onEvent?(event, sessionId)
+            // Normalize to AgentEvents if a normalizer is registered.
+            if let normalizer {
+                for event in normalizer.normalize(hookPayload: jsonObj) {
+                    onEvent?(event, sessionId)
+                }
             }
 
             // Hold the connection open while we wait for the iOS client's decision.
@@ -241,8 +243,10 @@ final class HookServer {
             }
         } else {
             // Non-blocking: normalize and fire, then immediately acknowledge.
-            if let normalizer, let event = normalizer.normalize(hookPayload: jsonObj) {
-                onEvent?(event, sessionId)
+            if let normalizer {
+                for event in normalizer.normalize(hookPayload: jsonObj) {
+                    onEvent?(event, sessionId)
+                }
             }
             sendOK(connection)
         }
