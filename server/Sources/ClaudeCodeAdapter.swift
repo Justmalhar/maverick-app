@@ -179,9 +179,11 @@ final class ClaudeCodeAdapter: AgentEventNormalizing {
             )
 
         case "SessionEnd":
-            let cwd = hookPayload["cwd"] as? String ?? ""
-            let source = hookPayload["source"] as? String ?? ""
-            let reason = SessionEndReason(rawValue: source) ?? .other
+            // Claude Code sends `source` whose values ("clear","resume","logout","promptExit")
+            // align with SessionEndReason rawValues. Naming overlaps SessionSource but the
+            // two enums are distinct; coincidence in shared values ("clear","resume") is expected.
+            let reasonRaw = hookPayload["source"] as? String ?? ""
+            let reason = SessionEndReason(rawValue: reasonRaw) ?? .other
             return .sessionEnd(reason: reason)
 
         case "WorktreeRemove":

@@ -90,10 +90,12 @@ final class AgentSession: @unchecked Sendable {
             guard let data = text.data(using: .utf8) else { return }
             ptySession?.write(data)
         case .chat:
-            guard let stdinPipe,
-                  let data = (text + "\n").data(using: .utf8)
-            else { return }
-            stdinPipe.fileHandleForWriting.write(data)
+            lock.lock()
+            let pipe = stdinPipe
+            lock.unlock()
+            guard let pipe, let data = (text + "\n").data(using: .utf8) else { return }
+            // Use throwing variant to avoid ObjC exception if handle was closed concurrently.
+            try? pipe.fileHandleForWriting.write(contentsOf: data)
         }
     }
 
@@ -118,20 +120,25 @@ final class AgentSession: @unchecked Sendable {
     // MARK: - Termination
 
     func terminate() {
-        // Terminal mode
+        // Terminal mode (not accessed from readabilityHandler — no lock needed)
         ptySession?.terminate()
         ptySession = nil
 
-        // Chat mode
-        agentProcess?.terminate()
+        // Capture chat-mode state under lock, then release before doing I/O
+        lock.lock()
+        let capturedProcess = agentProcess
+        let capturedStdout = stdoutPipe
+        let capturedStdin = stdinPipe
         agentProcess = nil
-
-        // Close stdin so the child process sees EOF
-        try? stdinPipe?.fileHandleForWriting.close()
-        stdinPipe = nil
-        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         stdoutPipe = nil
+        stdinPipe = nil
         lineBuffer.removeAll()
+        lock.unlock()
+
+        // Do I/O outside the lock to avoid holding it during potentially blocking calls
+        capturedStdout?.fileHandleForReading.readabilityHandler = nil
+        try? capturedStdin?.fileHandleForWriting.close()
+        capturedProcess?.terminate()
     }
 
     // MARK: - Private: terminal launch
@@ -222,22 +229,34 @@ final class AgentSession: @unchecked Sendable {
     /// Process raw stdout data: accumulate into lineBuffer and dispatch complete lines.
     private func processOutput(_ data: Data) {
         guard !data.isEmpty else {
-            // EOF — clear buffer and stop handler
-            stdoutPipe?.fileHandleForReading.readabilityHandler = nil
+            // EOF — capture pipe under lock then clear handler outside lock
+            lock.lock()
+            let pipe = stdoutPipe
+            lock.unlock()
+            pipe?.fileHandleForReading.readabilityHandler = nil
             return
         }
+
+        // Accumulate and slice complete lines under lock; fire callbacks outside lock
+        // to avoid holding the lock during potentially re-entrant or blocking callbacks.
+        var eventsToFire: [AgentEvent] = []
+        lock.lock()
         lineBuffer.append(data)
-        // Process all complete lines
         while let newlineIndex = lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
             let lineData = lineBuffer[lineBuffer.startIndex..<newlineIndex]
             lineBuffer = lineBuffer.dropFirst(newlineIndex - lineBuffer.startIndex + 1)
             if lineData.isEmpty { continue }
             if let event = normalizer.normalize(streamLine: Data(lineData)) {
                 if case .sessionStart(let id, _, _, _, _) = event {
-                    lock.lock(); claudeSessionId = id; lock.unlock()
+                    claudeSessionId = id
                 }
-                onAgentEvent?(event)
+                eventsToFire.append(event)
             }
+        }
+        lock.unlock()
+
+        for event in eventsToFire {
+            onAgentEvent?(event)
         }
     }
 }

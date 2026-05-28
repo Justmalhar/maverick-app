@@ -10,15 +10,32 @@ import MaverickProtocol
 /// enhancement if needed.
 final class AgentEventBroadcaster {
 
+    private let lock = NSLock()
+    private var _onEvent: ((UUID, AgentEvent) -> Void)?
+
     /// Called for every normalized event received from either source.
-    /// Parameters: (sessionId, event)
-    var onEvent: ((UUID, AgentEvent) -> Void)?
+    /// Parameters: (sessionId, event). Thread-safe: reads and writes are serialized.
+    var onEvent: ((UUID, AgentEvent) -> Void)? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _onEvent
+        }
+        set {
+            lock.lock()
+            _onEvent = newValue
+            lock.unlock()
+        }
+    }
 
     // MARK: - From AgentSession (chat mode stdout)
 
     /// Called when `AgentSession` emits a normalized `AgentEvent`.
     func receive(event: AgentEvent, for sessionId: UUID) {
-        onEvent?(sessionId, event)
+        lock.lock()
+        let callback = _onEvent
+        lock.unlock()
+        callback?(sessionId, event)
     }
 
     // MARK: - From HookServer (both modes)
@@ -31,6 +48,9 @@ final class AgentEventBroadcaster {
             NSLog("[AgentEventBroadcaster] Dropping hook event — invalid session UUID: %@", sessionIdString)
             return
         }
-        onEvent?(sessionId, event)
+        lock.lock()
+        let callback = _onEvent
+        lock.unlock()
+        callback?(sessionId, event)
     }
 }
