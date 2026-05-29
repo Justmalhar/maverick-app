@@ -67,7 +67,12 @@ if [ "$DO_BUILD" -eq 1 ]; then
   echo "→ Regenerating Xcode project…"
   xcodegen generate --quiet
 
+  AGENT_BUILD="$DERIVED_DATA/Build/Products/Release/${APP_NAME}.app"
+  # Remove any prior product so a failed build can never ship a stale app.
+  rm -rf "$AGENT_BUILD"
+
   echo "══ Building ${APP_NAME} (macOS Release) ══"
+  set +e
   xcodebuild \
     -scheme "$APP_NAME" \
     -configuration Release \
@@ -75,9 +80,15 @@ if [ "$DO_BUILD" -eq 1 ]; then
     -allowProvisioningUpdates \
     CODE_SIGN_STYLE=Automatic \
     DEVELOPMENT_TEAM="$TEAM_ID" \
-    build 2>&1 | grep -E "BUILD (SUCCEEDED|FAILED)|error:" || true
-
-  AGENT_BUILD="$DERIVED_DATA/Build/Products/Release/${APP_NAME}.app"
+    CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
+    build 2>&1 | tee "$DERIVED_DATA/build.log" | grep -E "BUILD (SUCCEEDED|FAILED)|error:"
+  BUILD_RC=${PIPESTATUS[0]}
+  set -e
+  if [ "$BUILD_RC" -ne 0 ]; then
+    echo "✗  Build failed (rc=$BUILD_RC). Last errors:" >&2
+    grep -E "error:|FAILED" "$DERIVED_DATA/build.log" | tail -20 >&2
+    exit 1
+  fi
   [ -d "$AGENT_BUILD" ] || { echo "${APP_NAME} build product not found at $AGENT_BUILD" >&2; exit 1; }
 
   rm -rf "$DIST/${APP_NAME}.app"
@@ -105,6 +116,35 @@ if [ "$SIGN_DEV_ID" -eq 1 ]; then
 
   codesign --verify --strict --verbose=2 "$APP_PATH" 2>&1 | tail -2
   echo "✓  signed"
+fi
+
+# ── Confirm notary credentials before any (slow) notarization work ────────────
+if [ "$DO_NOTARIZE" -eq 1 ]; then
+  if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" &>/dev/null; then
+    echo ""
+    echo "⚠  Notary profile '$NOTARY_PROFILE' not found — skipping notarization."
+    echo "   Set it up once with:"
+    echo "     xcrun notarytool store-credentials \"$NOTARY_PROFILE\" \\"
+    echo "       --apple-id <your-apple-id> --team-id $TEAM_ID --password <app-specific-password>"
+    DO_NOTARIZE=0
+  fi
+fi
+
+# ── Notarize + staple the APP itself, so it is self-contained ─────────────────
+# Stapling the app (not just the DMG) means a recipient who drags it to
+# /Applications gets a notarized app that verifies even on first launch offline.
+if [ "$DO_NOTARIZE" -eq 1 ]; then
+  echo ""
+  echo "══ Notarizing ${APP_NAME}.app (this can take a few minutes) ══"
+  APP_ZIP="$DIST/${APP_NAME}-notarize.zip"
+  /usr/bin/ditto -c -k --keepParent "$APP_PATH" "$APP_ZIP"
+  xcrun notarytool submit "$APP_ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+  rm -f "$APP_ZIP"
+
+  echo "→ Stapling ticket to the app…"
+  xcrun stapler staple "$APP_PATH"
+  xcrun stapler validate "$APP_PATH"
+  echo "✓  app notarized + stapled"
 fi
 
 # ── Stage the app so the DMG only contains the app + Applications link ────────
@@ -136,18 +176,7 @@ if [ "$SIGN_DEV_ID" -eq 1 ]; then
   codesign --force --timestamp --sign "$DEV_ID_IDENTITY" "$DMG_PATH"
 fi
 
-# ── Notarize + staple ─────────────────────────────────────────────────────────
-if [ "$DO_NOTARIZE" -eq 1 ]; then
-  if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" &>/dev/null; then
-    echo ""
-    echo "⚠  Notary profile '$NOTARY_PROFILE' not found — skipping notarization."
-    echo "   Set it up once with:"
-    echo "     xcrun notarytool store-credentials \"$NOTARY_PROFILE\" \\"
-    echo "       --apple-id <your-apple-id> --team-id $TEAM_ID --password <app-specific-password>"
-    DO_NOTARIZE=0
-  fi
-fi
-
+# ── Notarize + staple the DMG, so the container opens cleanly offline too ─────
 if [ "$DO_NOTARIZE" -eq 1 ]; then
   echo ""
   echo "══ Notarizing ${APP_NAME}.dmg (this can take a few minutes) ══"
@@ -155,10 +184,10 @@ if [ "$DO_NOTARIZE" -eq 1 ]; then
     --keychain-profile "$NOTARY_PROFILE" \
     --wait
 
-  echo "→ Stapling ticket…"
+  echo "→ Stapling ticket to the DMG…"
   xcrun stapler staple "$DMG_PATH"
   xcrun stapler validate "$DMG_PATH"
-  echo "✓  notarized + stapled"
+  echo "✓  DMG notarized + stapled"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
