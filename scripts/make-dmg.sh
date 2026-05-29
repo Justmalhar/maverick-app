@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
-# Build MaverickAgent (macOS) and package it into a drag-to-Applications DMG.
+# Build MaverickAgent (macOS), Developer-ID sign + notarize, and package a
+# drag-to-Applications DMG that opens cleanly on anyone else's Mac.
 #
 # Output:
-#   dist/MaverickAgent.dmg   — open, drag the app onto the Applications alias, share freely
+#   dist/MaverickAgent.dmg   — share freely; no Gatekeeper warning once notarized
+#
+# Distribution-ready requires two one-time setup steps (see scripts/README.md):
+#   1. A "Developer ID Application" certificate in your login keychain.
+#   2. A stored notarytool credential profile (default name: maverick-notary).
+# If either is missing the script still produces a DMG, but signed only with
+# your Apple Development cert (works locally, warns on other Macs).
 #
 # Usage:
-#   ./scripts/make-dmg.sh            # build Release, then make the DMG
-#   ./scripts/make-dmg.sh --no-build # reuse an existing dist/MaverickAgent.app
+#   ./scripts/make-dmg.sh                 # build, sign, notarize, staple, package
+#   ./scripts/make-dmg.sh --no-build      # reuse existing dist/MaverickAgent.app
+#   ./scripts/make-dmg.sh --no-notarize   # Developer-ID sign but skip notarization
+#
+# Override defaults via env:
+#   DEV_ID_IDENTITY="Developer ID Application: Name (TEAMID)"
+#   NOTARY_PROFILE="maverick-notary"
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,10 +28,16 @@ TEAM_ID="R6G234T379"
 APP_NAME="MaverickAgent"
 VOL_NAME="Maverick Agent"
 DMG_PATH="$DIST/${APP_NAME}.dmg"
+ENTITLEMENTS="$REPO_ROOT/server/MaverickAgent.entitlements"
+NOTARY_PROFILE="${NOTARY_PROFILE:-maverick-notary}"
 DO_BUILD=1
+DO_NOTARIZE=1
 
 for arg in "$@"; do
-  [[ "$arg" == "--no-build" ]] && DO_BUILD=0
+  case "$arg" in
+    --no-build)    DO_BUILD=0 ;;
+    --no-notarize) DO_NOTARIZE=0 ;;
+  esac
 done
 
 cd "$REPO_ROOT"
@@ -27,6 +45,20 @@ mkdir -p "$DIST"
 
 # ── Guards ────────────────────────────────────────────────────────────────────
 command -v create-dmg &>/dev/null || { echo "create-dmg not found. Install: brew install create-dmg" >&2; exit 1; }
+
+# ── Resolve Developer ID signing identity (auto-detect if not given) ──────────
+DEV_ID_IDENTITY="${DEV_ID_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | awk -F\" '/Developer ID Application/{print $2; exit}')}"
+
+SIGN_DEV_ID=0
+if [ -n "$DEV_ID_IDENTITY" ]; then
+  SIGN_DEV_ID=1
+  echo "→ Developer ID identity: $DEV_ID_IDENTITY"
+else
+  echo "⚠  No 'Developer ID Application' certificate found — DMG will be Apple-Development signed only."
+  echo "   It runs locally but other Macs will show a Gatekeeper warning. See scripts/README.md."
+  DO_NOTARIZE=0
+fi
 
 # ── Build MaverickAgent (macOS Release) ───────────────────────────────────────
 if [ "$DO_BUILD" -eq 1 ]; then
@@ -56,7 +88,26 @@ fi
 APP_PATH="$DIST/${APP_NAME}.app"
 [ -d "$APP_PATH" ] || { echo "No ${APP_NAME}.app in dist/. Run without --no-build first." >&2; exit 1; }
 
-# ── Stage the app in a clean folder so the DMG only contains the app ──────────
+# ── Re-sign with Developer ID + hardened runtime (required for notarization) ──
+if [ "$SIGN_DEV_ID" -eq 1 ]; then
+  echo ""
+  echo "══ Signing ${APP_NAME}.app with Developer ID (hardened runtime) ══"
+  # Sign nested code inside-out first, then the app bundle.
+  while IFS= read -r -d '' nested; do
+    codesign --force --timestamp --options runtime \
+      --sign "$DEV_ID_IDENTITY" "$nested"
+  done < <(find "$APP_PATH/Contents" \( -name "*.dylib" -o -name "*.framework" \) -print0 2>/dev/null)
+
+  ENT_ARG=()
+  [ -f "$ENTITLEMENTS" ] && ENT_ARG=(--entitlements "$ENTITLEMENTS")
+  codesign --force --timestamp --options runtime "${ENT_ARG[@]}" \
+    --sign "$DEV_ID_IDENTITY" "$APP_PATH"
+
+  codesign --verify --strict --verbose=2 "$APP_PATH" 2>&1 | tail -2
+  echo "✓  signed"
+fi
+
+# ── Stage the app so the DMG only contains the app + Applications link ────────
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 cp -R "$APP_PATH" "$STAGE/${APP_NAME}.app"
@@ -76,12 +127,51 @@ create-dmg \
   --no-internet-enable \
   "$DMG_PATH" \
   "$STAGE" \
-  || true   # create-dmg returns non-zero if codesign-of-dmg is skipped; verify below
+  || true   # create-dmg exits non-zero when it skips its own signing; verify below
 
 [ -f "$DMG_PATH" ] || { echo "DMG was not created at $DMG_PATH" >&2; exit 1; }
 
+# Sign the DMG itself so the container carries a valid signature too.
+if [ "$SIGN_DEV_ID" -eq 1 ]; then
+  codesign --force --timestamp --sign "$DEV_ID_IDENTITY" "$DMG_PATH"
+fi
+
+# ── Notarize + staple ─────────────────────────────────────────────────────────
+if [ "$DO_NOTARIZE" -eq 1 ]; then
+  if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" &>/dev/null; then
+    echo ""
+    echo "⚠  Notary profile '$NOTARY_PROFILE' not found — skipping notarization."
+    echo "   Set it up once with:"
+    echo "     xcrun notarytool store-credentials \"$NOTARY_PROFILE\" \\"
+    echo "       --apple-id <your-apple-id> --team-id $TEAM_ID --password <app-specific-password>"
+    DO_NOTARIZE=0
+  fi
+fi
+
+if [ "$DO_NOTARIZE" -eq 1 ]; then
+  echo ""
+  echo "══ Notarizing ${APP_NAME}.dmg (this can take a few minutes) ══"
+  xcrun notarytool submit "$DMG_PATH" \
+    --keychain-profile "$NOTARY_PROFILE" \
+    --wait
+
+  echo "→ Stapling ticket…"
+  xcrun stapler staple "$DMG_PATH"
+  xcrun stapler validate "$DMG_PATH"
+  echo "✓  notarized + stapled"
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
+if [ "$DO_NOTARIZE" -eq 1 ]; then
+  STATUS="signed + notarized + stapled — opens cleanly on any Mac"
+elif [ "$SIGN_DEV_ID" -eq 1 ]; then
+  STATUS="Developer-ID signed, NOT notarized — Gatekeeper may still warn"
+else
+  STATUS="Apple-Development signed only — for local use"
+fi
 echo "┌─────────────────────────────────────────────────────────┐"
 echo "│  DMG ready  →  dist/${APP_NAME}.dmg"
+echo "│  $STATUS"
 echo "│  Open it, drag the app onto Applications, then share it.  │"
 echo "└─────────────────────────────────────────────────────────┘"
