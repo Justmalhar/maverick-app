@@ -47,7 +47,7 @@ struct SessionsListView: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Theme.bg.ignoresSafeArea()
             VStack(spacing: 0) {
                 navigationHeader
@@ -59,7 +59,9 @@ struct SessionsListView: View {
                 // intentionally do NOT wrap it in a ScrollView — that nesting
                 // was eating the swipe gesture and disabling .swipeActions.
                 sessionsList
+                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showCompose) {
@@ -126,7 +128,10 @@ struct SessionsListView: View {
                 .buttonStyle(.plain)
                 .disabled(selectedCount == 0)
             } else {
-                // Normal mode: glass Edit pill, transparent title, glass filter circle
+                // Normal mode: glass Edit pill, transparent title, glass filter circle.
+                // Edit is hidden when there's nothing to edit, but kept in the layout
+                // (via .hidden()) so "Agents" stays optically centered.
+                let hasContent = !store.sessions.isEmpty || !history.entries.isEmpty
                 Button {
                     withAnimation(.snappy(duration: 0.2)) { isEditing = true }
                 } label: {
@@ -138,6 +143,8 @@ struct SessionsListView: View {
                         .liquidGlassCapsule() // real glassEffect on iOS 26
                 }
                 .buttonStyle(.plain)
+                .opacity(hasContent ? 1 : 0)
+                .allowsHitTesting(hasContent)
 
                 Spacer()
                 Text("Agents")
@@ -377,10 +384,10 @@ private struct PinnedAgentButton: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 7) {
-                AgentIcon(agent: agent, size: 26, color: agent.accentColor)
+                // No color: parameter — lets isColorIcon drive .original rendering
+                // so brand SVGs (Claude orange, Codex green, etc.) show their real art.
+                AgentIcon(agent: agent, size: 26)
                     .frame(width: 58, height: 58)
-                    // iOS 26: real Liquid Glass with interactive bounce/shimmer on tap.
-                    // iOS <26: frosted circle fallback.
                     .glassInteractiveCircle()
                 Text(agent.shortName)
                     .font(.system(size: 11, weight: .medium))
@@ -438,9 +445,14 @@ private struct AgentSessionRow: View {
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive, action: onClose) {
-                Label("Close", systemImage: "xmark.circle.fill")
+            Button {
+                onClose()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
             }
+            .tint(.red)
         }
         .contextMenu {
             Button(role: .destructive, action: onClose) {
@@ -535,9 +547,14 @@ private struct PreviousAgentSessionRow: View {
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive, action: onRemove) {
-                Label("Remove", systemImage: "trash")
+            Button {
+                onRemove()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
             }
+            .tint(.red)
         }
         .contextMenu {
             Button(action: onTap) { Label("Re-open", systemImage: "arrow.counterclockwise") }
@@ -556,9 +573,10 @@ private struct PreviousAgentSessionRow: View {
             Circle().fill(Color.white.opacity(0.04)).frame(width: 42, height: 42)
             Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8).frame(width: 42, height: 42)
             if let agent {
+                // Full desaturation signals "not running" while keeping the icon recognizable.
                 AgentIcon(agent: agent, size: 22)
-                    .opacity(0.55)
-                    .saturation(0.7)
+                    .saturation(0)
+                    .opacity(0.6)
             } else {
                 Image(systemName: "terminal")
                     .font(.system(size: 18, weight: .regular))

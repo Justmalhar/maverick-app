@@ -9,19 +9,61 @@ struct ChatListView: View {
 
     @State private var isEditing = false
     @State private var selectedIds: Set<UUID> = []
+    @State private var showSettings = false
 
-    // Navigation is managed by ContentView's NavigationStack (chatPath).
-    // ChatListView is just the list content — no nested NavigationStack here.
     var body: some View {
         ZStack {
             Theme.bg.ignoresSafeArea()
             VStack(spacing: 0) {
                 navigationHeader
+                if !settings.chatAssistants.isEmpty && !isEditing {
+                    assistantRow
+                }
                 conversationList
             }
-
         }
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showSettings) { SettingsSheet() }
+    }
+
+    // MARK: - Assistant quick-launch row
+
+    private var assistantRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(settings.chatAssistants) { assistant in
+                    Button {
+                        let model = assistant.modelOverride ?? settings.chatModel
+                        let convId = chatStore.newConversation(
+                            model: model,
+                            systemPrompt: assistant.systemPrompt,
+                            assistantName: "\(assistant.emoji) \(assistant.name)"
+                        )
+                        path.append(convId)
+                    } label: {
+                        VStack(spacing: 6) {
+                            Text(assistant.emoji)
+                                .font(.system(size: 26))
+                                .frame(width: 52, height: 52)
+                                .background(Circle().fill(Color.white.opacity(0.07)))
+                                .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 0.5))
+                            Text(assistant.name)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Theme.textSecondary)
+                                .lineLimit(1)
+                        }
+                        .frame(width: 68)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .background(Color.white.opacity(0.02))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.stroke).frame(height: 0.5)
+        }
     }
 
     // MARK: - Nav header
@@ -78,8 +120,8 @@ struct ChatListView: View {
                         .liquidGlassCapsule()
                 }
                 .buttonStyle(.plain)
-                .disabled(chatStore.conversations.isEmpty)
-                .opacity(chatStore.conversations.isEmpty ? 0.4 : 1)
+                .opacity(chatStore.conversations.isEmpty ? 0 : 1)
+                .allowsHitTesting(!chatStore.conversations.isEmpty)
 
                 Spacer()
                 Text("Chats")
@@ -87,8 +129,18 @@ struct ChatListView: View {
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
 
-                // Right side is empty — compose is handled by the bottom FAB
-                Color.clear.frame(width: 44, height: 36)
+                // Settings gear — same pattern as Agents screen
+                GlassEffectContainerIfAvailable {
+                    Button { showSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(Theme.textPrimary)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .glassCircleButtonStyle()
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -121,14 +173,15 @@ struct ChatListView: View {
                                 }
                             }
                         )
-                        // Swipe-left to delete — works because this is inside a List.
-                        // iOS renders this as the standard red rounded-rectangle button.
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
+                            Button {
                                 withAnimation { chatStore.delete(id: conv.id) }
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                Image(systemName: "trash")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.white)
                             }
+                            .tint(.red)
                         }
                         .contextMenu {
                             Button(role: .destructive) {
@@ -149,30 +202,33 @@ struct ChatListView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Spacer()
             Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 40))
+                .font(.system(size: 44))
                 .foregroundStyle(Theme.textTertiary)
             Text("No chats yet")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Theme.textSecondary)
-            Text("Tap ✏️ to start a new conversation\nwith any OpenAI-compatible model.")
-                .font(.system(size: 13))
+            Text("Tap ✏️ to start a conversation\nwith any AI model.")
+                .font(.system(size: 14))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.textTertiary)
 
             if settings.chatAPIKey.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "key.fill").font(.system(size: 12))
-                    Text("Add your API key in Settings → AI Chat")
-                        .font(.system(size: 13, weight: .medium))
+                Button { showSettings = true } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "key.fill").font(.system(size: 13))
+                        Text("Add API Key")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundStyle(Theme.onAccent)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 11)
+                    .background(Capsule().fill(Theme.accent))
                 }
-                .foregroundStyle(Theme.danger.opacity(0.8))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.danger.opacity(0.1)))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.danger.opacity(0.3), lineWidth: 0.5))
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
             Spacer()
         }

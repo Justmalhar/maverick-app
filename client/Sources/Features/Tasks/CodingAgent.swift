@@ -68,13 +68,6 @@ enum CodingAgent: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
-    /// True when the SVG in `Agents.xcassets` carries its own brand colors
-    /// (so it should render with `.original` mode and ignore any tint).
-    /// False for template-style SVGs whose paths use `currentColor`.
-    var isColorIcon: Bool {
-        switch self {
-        case .claudeCode, .codex, .antigravity, .opencode: return true
-        case .hermes: return false
-        }
-    }
+    /// All agents now use color PNGs — always render with .original mode.
+    var isColorIcon: Bool { true }
 }

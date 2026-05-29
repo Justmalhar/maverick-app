@@ -53,16 +53,17 @@ struct ConnectionView: View {
     // MARK: - Pieces
 
     private var hero: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(Theme.accentGradient)
-                    .frame(width: 76, height: 76)
-                    .shadow(color: Theme.accent.opacity(0.4), radius: 18, x: 0, y: 8)
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(.black.opacity(0.85))
-            }
+        VStack(spacing: 12) {
+            Image("MaverickLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 80, height: 80)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                )
             Text("Maverick")
                 .font(.system(size: 34, weight: .bold, design: .rounded))
                 .foregroundStyle(Theme.textPrimary)
@@ -104,14 +105,7 @@ struct ConnectionView: View {
             .focused($focused, equals: .token)
         }
         .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Theme.stroke, lineWidth: 1)
-        )
+        .liquidGlassSurface(cornerRadius: 18, elevation: 0.8)
     }
 
     private var historySection: some View {
@@ -146,14 +140,7 @@ struct ConnectionView: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(.ultraThinMaterial)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .strokeBorder(Theme.stroke, lineWidth: 1)
-                            )
+                            .liquidGlassSurface(cornerRadius: 12, elevation: 0.5)
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
@@ -184,20 +171,22 @@ struct ConnectionView: View {
         } label: {
             HStack(spacing: 8) {
                 if connection.state == .connecting {
-                    ProgressView().tint(.black)
+                    ProgressView()
                 }
                 Text(connection.state == .connecting ? "Connecting…" : "Connect")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
             }
-            .foregroundStyle(.black)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .background(
-                Capsule().fill(Theme.accentGradient)
-            )
-            .shadow(color: Theme.accent.opacity(0.4), radius: 14, x: 0, y: 6)
+            // iOS 26: glassProminent gives the opaque primary-action Liquid Glass button.
+            // iOS <26: keep the existing white gradient capsule.
+            .ifNot26 {
+                $0.foregroundStyle(.black)
+                    .background(Capsule().fill(Theme.accentGradient))
+                    .shadow(color: Theme.accent.opacity(0.4), radius: 14, x: 0, y: 6)
+            }
         }
-        .buttonStyle(.plain)
+        .connectButtonStyle()
         .disabled(host.isEmpty || connection.state == .connecting)
         .opacity((host.isEmpty || connection.state == .connecting) ? 0.6 : 1)
     }

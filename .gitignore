@@ -9,6 +9,9 @@ xcuserdata/
 # SwiftPM
 .build/
 
+# Build artifacts / distributables
+dist/
+
 # macOS
 .DS_Store
 
