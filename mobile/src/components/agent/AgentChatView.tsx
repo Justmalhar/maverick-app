@@ -7,7 +7,7 @@
  * The list is inverted so index 0 is the newest item and the bottom-anchored
  * tail stays pinned; scrolling up triggers `onLoadOlder`.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -37,7 +37,10 @@ export function AgentChatView({
   const thinking = useObservable(model, (m) => m.isThinking);
   const [draft, setDraft] = useState('');
 
-  const reversed = [...items].reverse();
+  // The list is `inverted`, so it consumes newest-first. Reverse only when the
+  // timeline identity changes — a fresh array every render breaks FlatList's
+  // data-stability check and causes scroll jank.
+  const reversed = useMemo(() => [...items].reverse(), [items]);
 
   const send = useCallback(() => {
     const text = draft.trim();

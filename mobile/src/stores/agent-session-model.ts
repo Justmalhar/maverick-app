@@ -14,9 +14,11 @@
  *   - the streaming bubble is finalised before a flushed batch so a tool batch
  *     never interleaves inside an assistant segment
  *
- * History paging (loadAgentHistory): older items prepend at the head;
- * `trimResident` caps resident pages to ~5 (250 items) from the *head* so the
- * bottom-anchored live tail is never dropped.
+ * History paging (loadAgentHistory): older items prepend at the head and live
+ * items append at the tail; `trimResident` caps the resident window to ~5 pages
+ * (250 items). On append it drops from the head (keeping the live tail); on
+ * prepend it drops from the tail (keeping the just-fetched older page) so paging
+ * up actually makes progress.
  */
 
 import {
@@ -251,17 +253,19 @@ export class AgentSessionModel extends Observable {
   prependHistory(older: AgentChatItem[]): boolean {
     if (older.length === 0) return false;
     this.timeline = [...older, ...this.timeline];
-    this.trimResident();
+    // Keep the HEAD: the just-fetched older page is the point of paging up, so
+    // trim the (already-resident) tail rather than the new items.
+    this.trimResident('head');
     this.notify();
     return true;
   }
 
-  private trimResident(): void {
-    if (this.timeline.length > MAX_RESIDENT_ITEMS) {
-      this.timeline = this.timeline.slice(
-        this.timeline.length - MAX_RESIDENT_ITEMS,
-      );
-    }
+  private trimResident(keep: 'head' | 'tail' = 'tail'): void {
+    if (this.timeline.length <= MAX_RESIDENT_ITEMS) return;
+    this.timeline =
+      keep === 'tail'
+        ? this.timeline.slice(this.timeline.length - MAX_RESIDENT_ITEMS)
+        : this.timeline.slice(0, MAX_RESIDENT_ITEMS);
   }
 
   private push(item: AgentChatItem): void {

@@ -231,7 +231,7 @@ describe('AgentSessionModel', () => {
     expect(lastItem.text).toBe(`m${total - 1}`);
   });
 
-  it('trims a large prepended history page from the head', () => {
+  it('prepended history survives an overflow by trimming the resident tail', () => {
     const m = model();
     m.apply({ type: 'user_message', text: 'tail' });
     const big: AgentChatItem[] = [];
@@ -240,7 +240,30 @@ describe('AgentSessionModel', () => {
     }
     m.prependHistory(big);
     expect(m.items).toHaveLength(HISTORY_PAGE_SIZE * MAX_RESIDENT_PAGES);
-    expect((m.items[m.items.length - 1] as { text: string }).text).toBe('tail');
+    // The just-fetched older page survives (head kept); the older live tail is
+    // dropped instead, so paging up makes progress.
+    expect((m.items[0] as { text: string }).text).toBe('b0');
+    expect(
+      m.items.some((i) => (i as { text?: string }).text === 'tail'),
+    ).toBe(false);
+  });
+
+  it('keeps a just-fetched older page when it overflows the window', () => {
+    const m = model();
+    // Fill the resident window with live items.
+    for (let i = 0; i < HISTORY_PAGE_SIZE * MAX_RESIDENT_PAGES; i++) {
+      m.apply({ type: 'user_message', text: `live${i}` });
+    }
+    const older: AgentChatItem[] = [];
+    for (let i = 0; i < HISTORY_PAGE_SIZE; i++) {
+      older.push({ id: `o${i}`, kind: 'user', text: `older${i}` });
+    }
+    expect(m.prependHistory(older)).toBe(true);
+    expect(m.items).toHaveLength(HISTORY_PAGE_SIZE * MAX_RESIDENT_PAGES);
+    // Every just-fetched older item is still resident at the head.
+    for (let i = 0; i < HISTORY_PAGE_SIZE; i++) {
+      expect((m.items[i] as { text: string }).text).toBe(`older${i}`);
+    }
   });
 
   it('finalises a streaming bubble when a pending batch flushes before the assistant message', () => {

@@ -33,9 +33,18 @@ export function WorkspaceScreen(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>(isAgent ? 'chat' : 'terminal');
 
   useEffect(() => {
-    if (sessionId.length > 0) {
-      app.client.attach(sessionId);
-      app.sessions.setActiveSessionId(sessionId);
+    if (sessionId.length === 0) return;
+    // SessionPicker.attach/resume already attached + set the active session
+    // before routing here, so re-attaching would emit a duplicate
+    // attach_session. Only attach when we arrive directly (deep link / cold
+    // start) at a session the picker never selected.
+    if (app.sessions.activeSessionId === sessionId) return;
+    app.client.attach(sessionId);
+    app.sessions.setActiveSessionId(sessionId);
+    // A direct arrival at an agent session skips the picker's resume() that
+    // flips it to chat mode, so it would otherwise open in terminal mode.
+    if (app.agents.session(sessionId) !== undefined) {
+      app.client.switchSessionMode(sessionId, 'chat');
     }
   }, [app, sessionId]);
 

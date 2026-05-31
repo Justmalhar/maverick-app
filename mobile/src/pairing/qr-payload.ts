@@ -42,6 +42,52 @@ export class PairingParseError extends Error {
 
 const X25519_KEY_LEN = 32;
 
+/** Default LAN pairing port when the relay hint omits one. */
+export const DEFAULT_PAIRING_PORT = 8765;
+
+export interface RendezvousTarget {
+  host: string;
+  port: number;
+}
+
+/**
+ * Derive the rendezvous host/port to dial from a parsed payload. Prefers the
+ * relay/rendezvous hint (`r`) — accepting `scheme://host:port/path`, bare
+ * `host:port`, or a bare host — and falls back to the LAN default
+ * (`pair.local:8765`) when no usable hint is present. A bracketed IPv6 literal
+ * is preserved; only the trailing `:port` is split off.
+ */
+export function rendezvousTarget(payload: PairingPayload): RendezvousTarget {
+  const fallback: RendezvousTarget = {
+    host: 'pair.local',
+    port: DEFAULT_PAIRING_PORT,
+  };
+  const hint = payload.relay?.trim();
+  if (hint === undefined || hint.length === 0) return fallback;
+
+  // Strip an optional scheme and any path/query/fragment, keeping authority.
+  let authority = hint.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '');
+  const slash = authority.indexOf('/');
+  if (slash >= 0) authority = authority.slice(0, slash);
+  if (authority.length === 0) return fallback;
+
+  let host = authority;
+  let port = DEFAULT_PAIRING_PORT;
+  const colon = authority.lastIndexOf(':');
+  // The `]` guard keeps colons inside a bracketed IPv6 literal intact. `colon`
+  // must be > 0 so a leading-colon authority (`:8765`) keeps its full string as
+  // the host rather than producing an empty one.
+  if (colon > 0 && authority.indexOf(']') < colon) {
+    const portStr = authority.slice(colon + 1);
+    const parsed = Number(portStr);
+    if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535) {
+      port = parsed;
+      host = authority.slice(0, colon);
+    }
+  }
+  return { host, port };
+}
+
 /**
  * Parse a `maverick://pair/v1?...` URI. Uses manual scheme/query parsing rather
  * than the WHATWG URL because RN/Hermes' URL support for custom schemes is

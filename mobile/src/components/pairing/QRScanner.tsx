@@ -16,8 +16,15 @@ import { Mono } from '../ui/Surface';
 
 export function QRScanner({
   onScan,
+  resetKey,
 }: {
   onScan: (data: string) => void;
+  /**
+   * Bump this whenever the scanner should accept a fresh scan (e.g. after a
+   * failed pairing's "Try again"). Without it the one-shot `handled` latch stays
+   * set and the camera never re-fires onScan.
+   */
+  resetKey?: number;
 }): React.JSX.Element {
   const [permission, requestPermission] = useCameraPermissions();
   const handled = useRef(false);
@@ -27,6 +34,10 @@ export function QRScanner({
       void requestPermission();
     }
   }, [permission, requestPermission]);
+
+  useEffect(() => {
+    handled.current = false;
+  }, [resetKey]);
 
   const onResult = (result: BarcodeScanningResult): void => {
     if (handled.current) return;

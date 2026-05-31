@@ -51,4 +51,22 @@ describe('QRScanner', () => {
     fireEvent.press(getByText('Grant access'));
     expect(mockRequestPermission).toHaveBeenCalled();
   });
+
+  it('re-arms the one-shot latch when resetKey changes (Try again)', () => {
+    const onScan = jest.fn();
+    const { getByTestId, rerender } = render(
+      <QRScanner onScan={onScan} resetKey={0} />,
+    );
+    const cam = getByTestId('qr-camera');
+    fireEvent(cam, 'barcodeScanned', { data: 'first' });
+    // Latched: a second scan is ignored until reset.
+    fireEvent(cam, 'barcodeScanned', { data: 'ignored' });
+    expect(onScan).toHaveBeenCalledTimes(1);
+
+    // "Try again" bumps resetKey → the latch clears → a new scan fires again.
+    rerender(<QRScanner onScan={onScan} resetKey={1} />);
+    fireEvent(getByTestId('qr-camera'), 'barcodeScanned', { data: 'second' });
+    expect(onScan).toHaveBeenCalledTimes(2);
+    expect(onScan).toHaveBeenLastCalledWith('second');
+  });
 });

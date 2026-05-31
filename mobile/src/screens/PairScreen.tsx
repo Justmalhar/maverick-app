@@ -3,7 +3,7 @@
  * LAN pairing channel, shows the TOFU safety-number for out-of-band
  * verification, and persists the paired device on confirm.
  */
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/components/AppProvider';
@@ -15,6 +15,11 @@ import {
   LanPairingChannel,
   lanPairingUrl,
 } from '@/pairing/lan-pairing-channel';
+import {
+  parsePairingPayload,
+  rendezvousTarget,
+  type RendezvousTarget,
+} from '@/pairing/qr-payload';
 import { space, theme } from '@/components/theme';
 import { Card, Mono } from '@/components/ui/Surface';
 
@@ -28,17 +33,35 @@ export function PairScreen(): React.JSX.Element {
   const stage = useObservable(controller, (c) => c.stage);
   const safety = useObservable(controller, (c) => c.safetyNumber);
   const error = useObservable(controller, (c) => c.error);
-  const lastScan = useRef<{ host: string; port: number } | null>(null);
+  const lastScan = useRef<RendezvousTarget | null>(null);
+  const [scanGeneration, setScanGeneration] = useState(0);
+
+  const retry = useCallback(() => {
+    lastScan.current = null;
+    setScanGeneration((g) => g + 1);
+    controller.reset();
+  }, [controller]);
 
   const onScan = useCallback(
     (data: string) => {
-      // Relay hint (if present) gives host:port; default to the LAN port.
-      const host = 'pair.local';
-      const port = 8765;
-      lastScan.current = { host, port };
+      // Derive the real rendezvous host/port from the scanned QR's relay hint
+      // (falling back to the LAN default) so the paired device records an
+      // address it can actually reconnect to.
+      let target: RendezvousTarget;
+      try {
+        target = rendezvousTarget(parsePairingPayload(data));
+      } catch {
+        // Let the controller surface the parse error; dial the LAN default so
+        // the (doomed) handshake fails cleanly rather than throwing here.
+        target = { host: 'pair.local', port: 8765 };
+      }
+      lastScan.current = target;
       /* istanbul ignore next -- exercising the real LAN socket requires a
          device; covered by PairingController tests with a fake channel. */
-      void controller.pair(data, new LanPairingChannel(lanPairingUrl(host, port)));
+      void controller.pair(
+        data,
+        new LanPairingChannel(lanPairingUrl(target.host, target.port)),
+      );
     },
     [controller],
   );
@@ -47,13 +70,19 @@ export function PairScreen(): React.JSX.Element {
     const t = lastScan.current;
     /* istanbul ignore else -- confirm is only reachable after a scan set this. */
     if (t !== null) controller.confirm(t.host, t.port);
-    router.replace('/');
-  }, [controller, router]);
+    // Navigation happens from the stage==='paired' effect, only after the
+    // controller actually persists the device; a failed confirm() drops to
+    // the 'error' stage and keeps the user on this screen.
+  }, [controller]);
+
+  useEffect(() => {
+    if (stage === 'paired') router.replace('/');
+  }, [stage, router]);
 
   return (
     <View style={styles.root}>
       {(stage === 'idle' || stage === 'parsing' || stage === 'handshaking') && (
-        <QRScanner onScan={onScan} />
+        <QRScanner onScan={onScan} resetKey={scanGeneration} />
       )}
       {stage === 'handshaking' && (
         <Mono color={theme.textSecondary} style={styles.center}>
@@ -78,7 +107,7 @@ export function PairScreen(): React.JSX.Element {
           <Mono color={theme.danger}>{error}</Mono>
           <Pressable
             accessibilityRole="button"
-            onPress={() => controller.reset()}
+            onPress={retry}
             style={styles.btn}
           >
             <Mono color={theme.onAccent} weight="700">

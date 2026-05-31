@@ -59,4 +59,17 @@ describe('terminalHtml', () => {
     const html = terminalHtml('hi\n"there"');
     expect(html).toContain(JSON.stringify('hi\n"there"'));
   });
+
+  it('pins the xterm version and guards every CDN tag with SRI + crossorigin', () => {
+    const html = terminalHtml();
+    // Pinned, real versions (the previous @5.3.0 scoped package did not exist).
+    expect(html).toContain('@xterm/xterm@5.5.0');
+    expect(html).toContain('@xterm/addon-fit@0.10.0');
+    // No remote <script>/<link> may load without an integrity hash.
+    const cdnTags = html.match(/(?:src|href)="https:\/\/[^"]+"/g) ?? [];
+    expect(cdnTags).toHaveLength(3);
+    const integrities = html.match(/integrity="sha384-[^"]+"/g) ?? [];
+    expect(integrities).toHaveLength(3);
+    expect((html.match(/crossorigin="anonymous"/g) ?? [])).toHaveLength(3);
+  });
 });

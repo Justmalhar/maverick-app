@@ -7,8 +7,6 @@
  * channel.
  */
 
-/* istanbul ignore file -- platform WebSocket glue; logic tested via FakeChannel. */
-
 import { PairingChannel } from './pairing-controller';
 import { bytesToBase64url, base64urlToBytes } from './base64url';
 
@@ -29,6 +27,9 @@ export class LanPairingChannel implements PairingChannel {
   private readonly inbound: Uint8Array[] = [];
   private waiter: ((frame: Uint8Array) => void) | null = null;
   private readonly opened: Promise<void>;
+  private isOpen = false;
+  /** Frames enqueued before the socket opened; flushed in order on open. */
+  private readonly outbox: string[] = [];
 
   constructor(url: string) {
     const Ctor = (globalThis as { WebSocket?: new (u: string) => SocketLike })
@@ -36,7 +37,12 @@ export class LanPairingChannel implements PairingChannel {
     if (!Ctor) throw new Error('No global WebSocket for LAN pairing');
     this.socket = new Ctor(url);
     this.opened = new Promise<void>((resolve, reject) => {
-      this.socket.onopen = () => resolve();
+      this.socket.onopen = () => {
+        this.isOpen = true;
+        for (const frame of this.outbox) this.socket.send(frame);
+        this.outbox.length = 0;
+        resolve();
+      };
       this.socket.onerror = () => reject(new Error('Pairing socket error'));
     });
     this.socket.onmessage = (ev) => {
@@ -56,7 +62,12 @@ export class LanPairingChannel implements PairingChannel {
   }
 
   send(frame: Uint8Array): void {
-    this.socket.send(bytesToBase64url(frame));
+    const encoded = bytesToBase64url(frame);
+    // The handshake's first send fires before the socket 'open' event; writing
+    // to a CONNECTING native WebSocket throws INVALID_STATE_ERR. Queue until
+    // open, then flush in order.
+    if (this.isOpen) this.socket.send(encoded);
+    else this.outbox.push(encoded);
   }
 
   receive(): Promise<Uint8Array> {

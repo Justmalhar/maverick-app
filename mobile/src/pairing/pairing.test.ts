@@ -1,6 +1,7 @@
 import {
   base64urlToBytes,
   bytesToBase64url,
+  DEFAULT_PAIRING_PORT,
   generateKeyPair,
   InitiatorPairingSession,
   InMemoryPinStorage,
@@ -8,6 +9,7 @@ import {
   NoiseXX,
   parsePairingPayload,
   PairingPayload,
+  rendezvousTarget,
   TofuMismatchError,
   TofuPinner,
 } from './index';
@@ -116,6 +118,90 @@ describe('parsePairingPayload', () => {
     const p = parsePairingPayload(`maverick://pair/v1?k=${KEY32_B64URL}&t=tok&n=bad%zz`);
     expect(p.token).toBe('tok');
     expect(p.name).toBe('bad%zz');
+  });
+});
+
+describe('rendezvousTarget', () => {
+  function withRelay(relay?: string): PairingPayload {
+    const base: PairingPayload = { staticPublicKey: KEY32, token: 't' };
+    if (relay !== undefined) base.relay = relay;
+    return base;
+  }
+
+  test('falls back to the LAN default when no relay hint is present', () => {
+    expect(rendezvousTarget(withRelay())).toEqual({
+      host: 'pair.local',
+      port: DEFAULT_PAIRING_PORT,
+    });
+  });
+
+  test('falls back when the relay hint is blank', () => {
+    expect(rendezvousTarget(withRelay('   '))).toEqual({
+      host: 'pair.local',
+      port: DEFAULT_PAIRING_PORT,
+    });
+  });
+
+  test('parses a scheme + host:port + path relay hint', () => {
+    expect(rendezvousTarget(withRelay('wss://relay.example.com:9443/r/abc'))).toEqual(
+      { host: 'relay.example.com', port: 9443 },
+    );
+  });
+
+  test('parses a bare host:port relay hint', () => {
+    expect(rendezvousTarget(withRelay('mac.ts.net:8765'))).toEqual({
+      host: 'mac.ts.net',
+      port: 8765,
+    });
+  });
+
+  test('defaults the port for a bare host', () => {
+    expect(rendezvousTarget(withRelay('mac.local'))).toEqual({
+      host: 'mac.local',
+      port: DEFAULT_PAIRING_PORT,
+    });
+  });
+
+  test('keeps the default port and full authority for a bracketed IPv6 literal', () => {
+    expect(rendezvousTarget(withRelay('ws://[fe80::1]'))).toEqual({
+      host: '[fe80::1]',
+      port: DEFAULT_PAIRING_PORT,
+    });
+  });
+
+  test('parses a port after a bracketed IPv6 literal', () => {
+    expect(rendezvousTarget(withRelay('ws://[fe80::1]:7000'))).toEqual({
+      host: '[fe80::1]',
+      port: 7000,
+    });
+  });
+
+  test('treats a non-numeric port segment as part of the host', () => {
+    expect(rendezvousTarget(withRelay('host:notaport'))).toEqual({
+      host: 'host:notaport',
+      port: DEFAULT_PAIRING_PORT,
+    });
+  });
+
+  test('rejects an out-of-range port and keeps it on the host', () => {
+    expect(rendezvousTarget(withRelay('host:70000'))).toEqual({
+      host: 'host:70000',
+      port: DEFAULT_PAIRING_PORT,
+    });
+  });
+
+  test('falls back when the hint is only a scheme', () => {
+    expect(rendezvousTarget(withRelay('wss://'))).toEqual({
+      host: 'pair.local',
+      port: DEFAULT_PAIRING_PORT,
+    });
+  });
+
+  test('falls back when the authority is empty after stripping the path', () => {
+    expect(rendezvousTarget(withRelay('wss:///just/a/path'))).toEqual({
+      host: 'pair.local',
+      port: DEFAULT_PAIRING_PORT,
+    });
   });
 });
 
