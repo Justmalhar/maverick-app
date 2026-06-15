@@ -84,8 +84,14 @@ final class PairingController {
         state = .scanning
     }
 
-    /// Reset to idle (e.g. on cancel from the confirmation step).
+    /// Reset to idle (e.g. on cancel from the confirmation step / try-again).
     func reset() {
+        // If we're abandoning a confirm step WITHOUT handing the socket to the
+        // ConnectionManager, the still-open handshake socket would otherwise leak.
+        // (The .confirm → .connected handoff path in confirm() must NOT cancel.)
+        if case let .confirm(_, result) = state {
+            result.webSocketTask.cancel(with: .normalClosure, reason: nil)
+        }
         state = .idle
     }
 
@@ -147,6 +153,12 @@ final class PairingController {
 
     /// User rejected the safety number — abandon the pairing.
     func cancel() {
+        // Tear down the still-open handshake socket before leaving .confirm.
+        // (Only the .confirm → .connected path in confirm() hands the socket off;
+        // every other exit from .confirm must cancel it to avoid a WS leak.)
+        if case let .confirm(_, result) = state {
+            result.webSocketTask.cancel(with: .normalClosure, reason: nil)
+        }
         state = .idle
     }
 

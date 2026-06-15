@@ -91,6 +91,9 @@ struct MaverickRemoteApp: App {
     private func autoConnectIfPossible() {
         let host = UserDefaults.standard.string(forKey: "lastHost") ?? ""
         let port = UserDefaults.standard.integer(forKey: "lastPort")
+        // Only .disconnected auto-reconnects. .rePairRequired is intentionally NOT
+        // auto-reconnected: the single-use pairing token is spent, so the user must
+        // re-pair (rescan a QR). Reconnect-without-rescan is deferred to M1.5.
         if connection.state == .disconnected, !host.isEmpty {
             connection.connect(host: host, port: port == 0 ? 8765 : port)
         }

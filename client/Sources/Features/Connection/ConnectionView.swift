@@ -29,6 +29,9 @@ struct ConnectionView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     hero
+                    if connection.state == .rePairRequired {
+                        rePairBanner
+                    }
                     if !history.hosts.isEmpty {
                         historySection
                     }
@@ -58,6 +61,31 @@ struct ConnectionView: View {
 
     // MARK: - Pieces
 
+    // Shown when a paired (Noise) session dropped: the single-use pairing token is
+    // spent, so the user must scan a fresh QR to reconnect (M1 — no silent reconnect).
+    private var rePairBanner: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "lock.trianglebadge.exclamationmark.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Encrypted session ended")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                Text("Scan a new QR to reconnect.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .liquidGlassSurface(cornerRadius: 16, elevation: 0.7)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Theme.accent.opacity(0.4), lineWidth: 1)
+        )
+    }
+
     private var pairDivider: some View {
         HStack(spacing: 10) {
             Rectangle().fill(Theme.stroke).frame(height: 0.5)
@@ -81,10 +109,15 @@ struct ConnectionView: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .foregroundStyle(Theme.textPrimary)
+            .foregroundStyle(connection.state == .rePairRequired ? Theme.accent : Theme.textPrimary)
         }
         .buttonStyle(.plain)
         .liquidGlassSurface(cornerRadius: 16, elevation: 0.7)
+        // Emphasise the re-pair path when an encrypted session just ended.
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Theme.accent, lineWidth: connection.state == .rePairRequired ? 1.2 : 0)
+        )
     }
 
     private var hero: some View {

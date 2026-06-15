@@ -145,6 +145,56 @@ final class PairingControllerTests: XCTestCase {
         XCTAssertEqual(try keychain.pinnedKey(host: fx.host), fx.daemonStaticKey)
     }
 
+    // MARK: - Cancel / reset from confirm
+
+    // cancel() must abandon the confirm step (and, in production, cancel the live
+    // handshake socket so it doesn't leak). With a stub task we can't assert the
+    // socket cancellation directly, but we assert the state transition and that
+    // connectFn was never invoked.
+    func testCancelFromConfirmReturnsToIdle() async {
+        let fx = makeFixture()
+        let keychain = makeKeychain()
+        defer { try? keychain.deleteAll() }
+
+        var connected = false
+        let controller = PairingController(
+            pairFn: { _, _ in fx.result },
+            keychain: keychain,
+            connectFn: { _ in connected = true }
+        )
+
+        await controller.handleScanned(fx.url)
+        guard case .confirm = controller.state else {
+            return XCTFail("expected .confirm before cancel, got \(controller.state)")
+        }
+
+        controller.cancel()
+
+        XCTAssertEqual(controller.state, .idle)
+        XCTAssertFalse(connected, "cancel must not hand the socket to the connection manager")
+    }
+
+    func testResetFromConfirmReturnsToIdle() async {
+        let fx = makeFixture()
+        let keychain = makeKeychain()
+        defer { try? keychain.deleteAll() }
+
+        let controller = PairingController(
+            pairFn: { _, _ in fx.result },
+            keychain: keychain,
+            connectFn: { _ in }
+        )
+
+        await controller.handleScanned(fx.url)
+        guard case .confirm = controller.state else {
+            return XCTFail("expected .confirm before reset, got \(controller.state)")
+        }
+
+        controller.reset()
+
+        XCTAssertEqual(controller.state, .idle)
+    }
+
     // MARK: - TOFU mismatch
 
     func testTofuMismatchGoesToFailed() async {

@@ -40,17 +40,23 @@ enum PairingClientError: Error, Equatable {
 /// handed to `ConnectionManager` unchanged.
 final class PairingClient {
     private let session: URLSession
+    /// True when we created `session` ourselves (so we own its lifecycle and must
+    /// invalidate it). False for an injected (test-owned) session — invalidating
+    /// someone else's session would be a use-after-invalidate hazard.
+    private let ownsSession: Bool
 
     /// Inject a `URLSession` for testing; defaults to a tightly-timed ephemeral
     /// session so a dead daemon doesn't hang the pairing flow.
     init(session: URLSession? = nil) {
         if let session {
             self.session = session
+            self.ownsSession = false
         } else {
             let config = URLSessionConfiguration.ephemeral
             config.timeoutIntervalForRequest = 10
             config.timeoutIntervalForResource = 15
             self.session = URLSession(configuration: config)
+            self.ownsSession = true
         }
     }
 
@@ -93,6 +99,14 @@ final class PairingClient {
             let (sendKey, recvKey) = try hs.split()
             let transport = NoiseTransport(send: sendKey, recv: recvKey)
 
+            // SUCCESS: the handshaken socket is being handed off in PairingResult.
+            // finishTasksAndInvalidate() lets the in-flight adopted task keep
+            // running while releasing the session — invalidateAndCancel() would
+            // kill the handed-off socket. Only invalidate sessions we own.
+            if ownsSession {
+                session.finishTasksAndInvalidate()
+            }
+
             return PairingResult(
                 transport: transport,
                 daemonStaticKey: rs,
@@ -112,6 +126,12 @@ final class PairingClient {
                     ? (.init(rawValue: 4401) ?? .normalClosure)
                     : .normalClosure
             task.cancel(with: closeCode, reason: nil)
+            // FAILURE: the task is being cancelled here, so invalidateAndCancel()
+            // is appropriate — no live socket is handed off. Only invalidate
+            // sessions we own.
+            if ownsSession {
+                session.invalidateAndCancel()
+            }
             throw mapped
         }
     }
