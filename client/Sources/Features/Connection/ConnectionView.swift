@@ -10,6 +10,7 @@ struct ConnectionView: View {
         return p == 0 ? "8765" : String(p)
     }()
     @State private var token = ""
+    @State private var showPairing = false
     @FocusState private var focused: Field?
 
     private enum Field { case host, port, token }
@@ -33,6 +34,8 @@ struct ConnectionView: View {
                     }
                     formCard
                     connectButton
+                    pairDivider
+                    pairButton
                     if let err = connection.lastError, connection.state != .connecting {
                         Text(err)
                             .font(.caption)
@@ -48,9 +51,41 @@ struct ConnectionView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .preferredColorScheme(.dark)
+        .fullScreenCover(isPresented: $showPairing) {
+            PairingView()
+        }
     }
 
     // MARK: - Pieces
+
+    private var pairDivider: some View {
+        HStack(spacing: 10) {
+            Rectangle().fill(Theme.stroke).frame(height: 0.5)
+            Text("or")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.textTertiary)
+            Rectangle().fill(Theme.stroke).frame(height: 0.5)
+        }
+        .padding(.horizontal, 8)
+    }
+
+    private var pairButton: some View {
+        Button {
+            showPairing = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "qrcode.viewfinder")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Pair with QR")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .foregroundStyle(Theme.textPrimary)
+        }
+        .buttonStyle(.plain)
+        .liquidGlassSurface(cornerRadius: 16, elevation: 0.7)
+    }
 
     private var hero: some View {
         VStack(spacing: 12) {
