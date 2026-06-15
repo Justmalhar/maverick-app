@@ -17,3 +17,6 @@ dist/
 
 # Env
 .env
+
+# Claude Code worktrees / scratch — never commit
+.claude/
