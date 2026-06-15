@@ -1,0 +1,26 @@
+[package]
+name = "noise-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# This is a standalone test fixture, NOT part of the daemon workspace. It pins
+# the exact same `snow` crate + features the daemon uses (see
+# maverick/src-tauri/Cargo.toml) so the Swift MaverickNoise initiator is proven
+# byte-compatible against the real responder implementation.
+[[bin]]
+name = "noise-harness"
+path = "main.rs"
+
+[dependencies]
+snow = { version = "0.10", default-features = false, features = [
+    "use-curve25519",
+    "use-chacha20poly1305",
+    "use-sha2",
+    "use-getrandom",
+] }
+base64 = "0.22"
+getrandom = "0.2"
+
+[profile.release]
+opt-level = 1
