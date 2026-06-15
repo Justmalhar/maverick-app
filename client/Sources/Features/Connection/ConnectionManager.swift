@@ -34,6 +34,12 @@ final class ConnectionManager {
     /// Wire codec. Plaintext for loopback/dev (default), Noise for paired
     /// sessions (installed by `connectPaired`). Every `send`/receive routes
     /// through this so call sites never change.
+    ///
+    /// Concurrency invariant: `transport` is REASSIGNED only on the main queue
+    /// (`connect`/`connectPaired`/`disconnect` are call-site driven from main);
+    /// `readLoop` runs its decode on a background URLSession queue and captures
+    /// the transport reference locally per frame, so a concurrent reassignment
+    /// can't swap the object mid-decode.
     private var transport: Transport = PlaintextTransport()
 
     /// `true` once `connectPaired` adopts an encrypted socket. Paired sessions
@@ -75,6 +81,12 @@ final class ConnectionManager {
         activeTaskId &+= 1
         let myTaskId = activeTaskId
 
+        // By design, the adopted task has NO `SocketDelegateBox`/URLSession
+        // delegate: it was created and handshaken by `PairingClient` on a
+        // different session, so we can't retroactively attach a delegate to it.
+        // Consequently `didCloseWith`/`didOpen` never fire for a paired socket.
+        // A disconnect is therefore detected SOLELY via `readLoop`'s `.failure`
+        // branch, which routes to `handleDrop` → `.rePairRequired`.
         let adopted = result.webSocketTask
         adopted.maximumMessageSize = 16 * 1024 * 1024
         adopted.taskDescription = String(myTaskId)
@@ -196,8 +208,13 @@ final class ConnectionManager {
                 // A decrypt/transport failure on a paired socket is fatal — the
                 // counter is now out of sync, so surface it and stop. A `nil`
                 // result is just an unrecognized-but-valid frame; keep reading.
+                //
+                // Capture the active transport locally so a concurrent
+                // reassignment (only ever on the main queue) can't swap the
+                // object mid-decode for this frame.
+                let activeTransport = self.transport
                 do {
-                    if let serverMsg = try self.transport.decode(msg) {
+                    if let serverMsg = try activeTransport.decode(msg) {
                         DispatchQueue.main.async { self.onMessage?(serverMsg) }
                     }
                 } catch {

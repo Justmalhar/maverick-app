@@ -79,10 +79,10 @@ final class PairingClient {
             let rs = try hs.readMsg2(msg2)
 
             // TOFU/QR pin: the responder static MUST equal the QR `k`.
+            // Just throw — the single cancellation is owned by the outer `catch`
+            // (which closes the socket with 4401 for this specific error, so we
+            // don't double-cancel and overwrite `task.closeCode`).
             guard rs == payload.staticKey else {
-                // Surface the same close code the daemon would use for a bad pin
-                // by closing our side, then throw the typed mismatch.
-                task.cancel(with: .init(rawValue: 4401) ?? .normalClosure, reason: nil)
                 throw NoiseError.responderKeyMismatch
             }
 
@@ -102,9 +102,16 @@ final class PairingClient {
             )
         } catch {
             // On any failure before completion, tear down the socket and map the
-            // failure to a typed pairing error where useful.
+            // failure to a typed pairing error where useful. This is the SINGLE
+            // cancellation point for the handshake socket — a responder-key
+            // mismatch carries the daemon's bad-pin close code (4401); everything
+            // else closes normally.
             let mapped = Self.mapFailure(error, task: task)
-            task.cancel(with: .normalClosure, reason: nil)
+            let closeCode: URLSessionWebSocketTask.CloseCode =
+                (error as? NoiseError) == .responderKeyMismatch
+                    ? (.init(rawValue: 4401) ?? .normalClosure)
+                    : .normalClosure
+            task.cancel(with: closeCode, reason: nil)
             throw mapped
         }
     }
