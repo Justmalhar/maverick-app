@@ -26,6 +26,8 @@
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Scan a pairing QR to connect securely to your Mac.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Maverick uses the microphone to capture voice input that Deepgram transcribes into terminal commands.</string>
     <key>UIAppFonts</key>

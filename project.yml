@@ -26,6 +26,8 @@ packages:
     from: "1.3.0"
   MaverickProtocol:
     path: shared
+  MaverickNoise:
+    path: MaverickNoise
 
 targets:
   MaverickAgent:
@@ -74,6 +76,7 @@ targets:
     dependencies:
       - package: SwiftTerm
       - package: MaverickProtocol
+      - package: MaverickNoise
       - package: MarkdownUI
         product: MarkdownUI
       - package: Highlightr
@@ -93,6 +96,7 @@ targets:
     dependencies:
       - target: MaverickRemote
       - package: MaverickProtocol
+      - package: MaverickNoise
     settings:
       GENERATE_INFOPLIST_FILE: YES
 

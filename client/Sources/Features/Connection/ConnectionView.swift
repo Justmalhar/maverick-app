@@ -10,6 +10,7 @@ struct ConnectionView: View {
         return p == 0 ? "8765" : String(p)
     }()
     @State private var token = ""
+    @State private var showPairing = false
     @FocusState private var focused: Field?
 
     private enum Field { case host, port, token }
@@ -28,11 +29,16 @@ struct ConnectionView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     hero
+                    if connection.state == .rePairRequired {
+                        rePairBanner
+                    }
                     if !history.hosts.isEmpty {
                         historySection
                     }
                     formCard
                     connectButton
+                    pairDivider
+                    pairButton
                     if let err = connection.lastError, connection.state != .connecting {
                         Text(err)
                             .font(.caption)
@@ -48,9 +54,71 @@ struct ConnectionView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .preferredColorScheme(.dark)
+        .fullScreenCover(isPresented: $showPairing) {
+            PairingView()
+        }
     }
 
     // MARK: - Pieces
+
+    // Shown when a paired (Noise) session dropped: the single-use pairing token is
+    // spent, so the user must scan a fresh QR to reconnect (M1 — no silent reconnect).
+    private var rePairBanner: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "lock.trianglebadge.exclamationmark.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Encrypted session ended")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                Text("Scan a new QR to reconnect.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .liquidGlassSurface(cornerRadius: 16, elevation: 0.7)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Theme.accent.opacity(0.4), lineWidth: 1)
+        )
+    }
+
+    private var pairDivider: some View {
+        HStack(spacing: 10) {
+            Rectangle().fill(Theme.stroke).frame(height: 0.5)
+            Text("or")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.textTertiary)
+            Rectangle().fill(Theme.stroke).frame(height: 0.5)
+        }
+        .padding(.horizontal, 8)
+    }
+
+    private var pairButton: some View {
+        Button {
+            showPairing = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "qrcode.viewfinder")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Pair with QR")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .foregroundStyle(connection.state == .rePairRequired ? Theme.accent : Theme.textPrimary)
+        }
+        .buttonStyle(.plain)
+        .liquidGlassSurface(cornerRadius: 16, elevation: 0.7)
+        // Emphasise the re-pair path when an encrypted session just ended.
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Theme.accent, lineWidth: connection.state == .rePairRequired ? 1.2 : 0)
+        )
+    }
 
     private var hero: some View {
         VStack(spacing: 12) {
