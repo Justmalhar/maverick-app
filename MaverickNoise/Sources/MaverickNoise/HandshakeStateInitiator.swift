@@ -4,9 +4,10 @@ import CryptoKit
 public struct HandshakeStateInitiator {
     private var sym = SymmetricState()
     private let s: Curve25519.KeyAgreement.PrivateKey
-    private var e: Curve25519.KeyAgreement.PrivateKey!
+    private var e: Curve25519.KeyAgreement.PrivateKey?
     private var rs: Data?   // responder static, learned in msg2
     private var re: Data?   // responder ephemeral, learned in msg2 (used by `se` in msg3)
+    private var handshakeComplete = false
 
     public init(staticKey: Curve25519.KeyAgreement.PrivateKey) { self.s = staticKey }
 
@@ -21,7 +22,8 @@ public struct HandshakeStateInitiator {
 
     /// `-> e`, payload = token (unkeyed → plaintext on the wire).
     public mutating func writeMsg1(token: Data) throws -> Data {
-        e = Curve25519.KeyAgreement.PrivateKey()
+        let e = Curve25519.KeyAgreement.PrivateKey()
+        self.e = e
         let ePub = e.publicKey.rawRepresentation
         sym.mixHash(ePub)
         let payload = try sym.encryptAndHash(token)  // unkeyed -> passthrough
@@ -30,6 +32,7 @@ public struct HandshakeStateInitiator {
 
     /// `<- e, ee, s, es`. Learns + returns responder static `rs`.
     public mutating func readMsg2(_ msg: Data) throws -> Data {
+        guard let e else { throw NoiseError.handshakeOutOfOrder }
         guard msg.count >= 32 + 48 + 16 else { throw NoiseError.messageTooShort }
         let reBytes = Data(msg.prefix(32))
         sym.mixHash(reBytes)
@@ -52,10 +55,13 @@ public struct HandshakeStateInitiator {
         // XX `se`: initiator-static × RESPONDER-ephemeral (re from msg2), NOT rs.
         try sym.mixKey(HandshakeStateInitiator.dh(s, reBytes))           // se
         let encPayload = try sym.encryptAndHash(Data())
+        handshakeComplete = true
         return encStatic + encPayload
     }
 
-    public func split() -> (send: Data, recv: Data) {
+    /// Per Noise spec §5.2, the initiator's transport keys are: send=k1, recv=k2.
+    public func split() throws -> (send: Data, recv: Data) {
+        guard handshakeComplete else { throw NoiseError.handshakeOutOfOrder }
         let (k1, k2) = sym.split()
         return (k1, k2)   // initiator: send=k1, recv=k2
     }

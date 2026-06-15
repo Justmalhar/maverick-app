@@ -6,5 +6,5 @@ public enum NoiseError: Error, Equatable {
     case messageTooShort
     case decryptFailed
     case responderKeyMismatch  // rs != QR k
-    case notKeyed
+    case nonceExhausted
 }

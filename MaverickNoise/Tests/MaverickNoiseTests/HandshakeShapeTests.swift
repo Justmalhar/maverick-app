@@ -20,4 +20,21 @@ final class HandshakeShapeTests: XCTestCase {
             XCTAssertEqual(error as? NoiseError, .handshakeOutOfOrder)
         }
     }
+
+    func testReadMsg2RejectsTruncated() throws {
+        let clientStatic = Curve25519.KeyAgreement.PrivateKey()
+        var hs = HandshakeStateInitiator(staticKey: clientStatic)
+        _ = try hs.writeMsg1(token: Data(repeating: 0, count: 16))
+        XCTAssertThrowsError(try hs.readMsg2(Data(repeating: 0, count: 95))) { error in
+            XCTAssertEqual(error as? NoiseError, .messageTooShort)
+        }
+    }
+
+    func testReadMsg2BeforeMsg1Throws() throws {
+        let clientStatic = Curve25519.KeyAgreement.PrivateKey()
+        var hs = HandshakeStateInitiator(staticKey: clientStatic)
+        XCTAssertThrowsError(try hs.readMsg2(Data(repeating: 0, count: 96))) { error in
+            XCTAssertEqual(error as? NoiseError, .handshakeOutOfOrder)
+        }
+    }
 }

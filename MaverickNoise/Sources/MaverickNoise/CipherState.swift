@@ -16,21 +16,23 @@ struct CipherState {
     }
 
     mutating func encrypt(plaintext: Data, aad: Data) throws -> Data {
+        guard counter != UInt64.max else { throw NoiseError.nonceExhausted }
         let n = try ChaChaPoly.Nonce(data: CipherState.nonce(counter: counter))
         let box = try ChaChaPoly.seal(plaintext, using: key, nonce: n, authenticating: aad)
-        counter &+= 1
+        counter += 1
         return box.ciphertext + box.tag   // wire = ciphertext || 16-byte tag
     }
 
     mutating func decrypt(ciphertext: Data, aad: Data) throws -> Data {
         guard ciphertext.count >= 16 else { throw NoiseError.messageTooShort }
+        guard counter != UInt64.max else { throw NoiseError.nonceExhausted }
         let n = try ChaChaPoly.Nonce(data: CipherState.nonce(counter: counter))
         let ct = ciphertext.prefix(ciphertext.count - 16)
         let tag = ciphertext.suffix(16)
         let box = try ChaChaPoly.SealedBox(nonce: n, ciphertext: ct, tag: tag)
         do {
             let pt = try ChaChaPoly.open(box, using: key, authenticating: aad)
-            counter &+= 1
+            counter += 1
             return pt
         } catch { throw NoiseError.decryptFailed }
     }

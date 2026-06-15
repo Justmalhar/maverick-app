@@ -9,7 +9,11 @@ public enum Fingerprint {
     public static func safetyNumber(_ staticKey: Data) -> String {
         let d = Data(SHA256.hash(data: staticKey))
         return (0..<5).map { i -> String in
-            let v = UInt32(bigEndian: d.subdata(in: (i*4)..<(i*4+4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            let base = i * 4
+            let v: UInt32 = (UInt32(d[base]) << 24)
+                          | (UInt32(d[base + 1]) << 16)
+                          | (UInt32(d[base + 2]) << 8)
+                          |  UInt32(d[base + 3])
             return String(format: "%06d", v % 1_000_000)
         }.joined(separator: " ")
     }
