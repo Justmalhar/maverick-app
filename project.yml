@@ -96,6 +96,7 @@ targets:
     dependencies:
       - target: MaverickRemote
       - package: MaverickProtocol
+      - package: MaverickNoise
     settings:
       GENERATE_INFOPLIST_FILE: YES
 

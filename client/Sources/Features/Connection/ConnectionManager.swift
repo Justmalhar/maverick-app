@@ -8,7 +8,15 @@ import MaverickProtocol
 /// during deinit on the simulator.
 @Observable
 final class ConnectionManager {
-    enum State: Equatable { case disconnected, connecting, connected }
+    enum State: Equatable {
+        case disconnected
+        case connecting
+        case connected
+        /// A paired (Noise) connection dropped. The single-use pairing token is
+        /// spent, so we cannot transparently reconnect — the user must re-pair
+        /// (scan a fresh QR). Seamless reconnect is deferred to M1.5.
+        case rePairRequired
+    }
 
     var state: State = .disconnected
     var lastError: String?
@@ -23,6 +31,15 @@ final class ConnectionManager {
     private var token = ""
     private(set) var delay: TimeInterval = 1
 
+    /// Wire codec. Plaintext for loopback/dev (default), Noise for paired
+    /// sessions (installed by `connectPaired`). Every `send`/receive routes
+    /// through this so call sites never change.
+    private var transport: Transport = PlaintextTransport()
+
+    /// `true` once `connectPaired` adopts an encrypted socket. Paired sessions
+    /// do NOT use the plaintext backoff/reconnect loop (their token is single-use).
+    private var isPaired = false
+
     /// Monotonic id used to ignore late callbacks from cancelled tasks.
     private var activeTaskId = 0
 
@@ -30,6 +47,8 @@ final class ConnectionManager {
 
     func connect(host: String, port: Int = 8765, token: String = "") {
         self.host = host; self.port = port; self.token = token
+        self.transport = PlaintextTransport()
+        self.isPaired = false
         UserDefaults.standard.set(host, forKey: "lastHost")
         UserDefaults.standard.set(port, forKey: "lastPort")
         openSocket()
@@ -42,13 +61,14 @@ final class ConnectionManager {
         session = nil
         task = nil
         delegateBox = nil
+        isPaired = false
+        transport = PlaintextTransport()
         DispatchQueue.main.async { [weak self] in self?.state = .disconnected }
     }
 
     func send(_ message: ClientMessage) {
-        guard let data = try? MaverickJSON.encoder().encode(message),
-              let text = String(data: data, encoding: .utf8) else { return }
-        task?.send(.string(text)) { _ in }
+        guard let wire = try? transport.encode(message) else { return }
+        task?.send(wire) { _ in }
     }
 
     // MARK: - Backoff helpers (internal for tests)
@@ -113,6 +133,18 @@ final class ConnectionManager {
 
     fileprivate func handleClose(taskId: Int) {
         guard taskId == activeTaskId else { return }
+        handleDrop()
+    }
+
+    /// Unified drop handler. Plaintext sessions back off and reconnect; paired
+    /// (Noise) sessions cannot — their token is single-use — so they surface
+    /// `rePairRequired` and stop (seamless reconnect is M1.5).
+    private func handleDrop() {
+        if isPaired {
+            task = nil
+            DispatchQueue.main.async { [weak self] in self?.state = .rePairRequired }
+            return
+        }
         scheduleReconnect()
     }
 
@@ -129,15 +161,22 @@ final class ConnectionManager {
                     if self.state != .connected { self.state = .connected }
                     self.resetDelay()
                 }
-                if case .string(let text) = msg,
-                   let data = text.data(using: .utf8),
-                   let serverMsg = try? MaverickJSON.decoder().decode(ServerMessage.self, from: data) {
-                    DispatchQueue.main.async { self.onMessage?(serverMsg) }
+                // A decrypt/transport failure on a paired socket is fatal — the
+                // counter is now out of sync, so surface it and stop. A `nil`
+                // result is just an unrecognized-but-valid frame; keep reading.
+                do {
+                    if let serverMsg = try self.transport.decode(msg) {
+                        DispatchQueue.main.async { self.onMessage?(serverMsg) }
+                    }
+                } catch {
+                    self.lastError = error.localizedDescription
+                    self.handleDrop()
+                    return
                 }
                 self.readLoop(taskId: taskId)
             case .failure(let err):
                 self.lastError = err.localizedDescription
-                self.scheduleReconnect()
+                self.handleDrop()
             }
         }
     }
