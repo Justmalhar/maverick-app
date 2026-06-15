@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Security
 import CryptoKit
 
@@ -28,6 +29,8 @@ public final class KeychainStore {
     private let identityAccount = "client.static.identity.x25519"
     private let pinPrefix = "daemon.pin."
 
+    private let lock = NSLock()
+
     public init(service: String = "com.malhar.MaverickRemote.pairing") {
         self.service = service
     }
@@ -38,6 +41,8 @@ public final class KeychainStore {
     /// on first call. Returns the SAME key (stable raw representation) on every
     /// subsequent call.
     public func loadOrCreateStaticIdentity() throws -> Curve25519.KeyAgreement.PrivateKey {
+        lock.lock()
+        defer { lock.unlock() }
         if let raw = try read(account: identityAccount) {
             return try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw)
         }
@@ -136,10 +141,13 @@ public final class KeychainStore {
 
     private func constantTimeEqual(_ a: Data, _ b: Data) -> Bool {
         guard a.count == b.count else { return false }
-        var diff: UInt8 = 0
-        for i in 0..<a.count {
-            diff |= a[a.index(a.startIndex, offsetBy: i)] ^ b[b.index(b.startIndex, offsetBy: i)]
+        // Equal-length empty data is trivially equal; also avoids a nil
+        // baseAddress being passed to timingsafe_bcmp.
+        if a.isEmpty { return true }
+        return a.withUnsafeBytes { ab in
+            b.withUnsafeBytes { bb in
+                timingsafe_bcmp(ab.baseAddress!, bb.baseAddress!, ab.count) == 0
+            }
         }
-        return diff == 0
     }
 }

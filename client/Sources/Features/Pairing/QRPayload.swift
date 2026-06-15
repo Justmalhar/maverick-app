@@ -10,8 +10,10 @@ public struct QRPayload: Equatable {
     /// Daemon static public key (`k`), exactly 32 bytes. Asserted against the
     /// Noise responder static during the handshake.
     public let staticKey: Data
-    /// Advertised ephemeral public key hint (`e`), exactly 32 bytes.
-    public let ephemeralHint: Data
+    /// Advertised ephemeral public key hint (`e`), exactly 32 bytes when
+    /// present. This is an optional, unused hint — the initiator generates its
+    /// own ephemeral — so it is `nil` when `e` is absent.
+    public let ephemeralHint: Data?
     /// Single-use pairing token (`t`), exactly 16 bytes. Echoed as the msg1 payload.
     public let token: Data
     /// Rendezvous host, resolved from `r` (else `pair.local`).
@@ -25,7 +27,7 @@ public struct QRPayload: Equatable {
 
     public init(
         staticKey: Data,
-        ephemeralHint: Data,
+        ephemeralHint: Data?,
         token: Data,
         host: String,
         port: Int,
@@ -97,11 +99,11 @@ extension QRPayload {
         }
 
         let staticKey = try decodeKey(kRaw, field: "k", expected: 32)
-        let ephemeralHint: Data
+        let ephemeralHint: Data?
         if let eRaw = params["e"], !eRaw.isEmpty {
             ephemeralHint = try decodeKey(eRaw, field: "e", expected: 32)
         } else {
-            ephemeralHint = Data()
+            ephemeralHint = nil
         }
         let token = try decodeKey(tRaw, field: "t", expected: 16)
 

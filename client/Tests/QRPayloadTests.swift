@@ -19,7 +19,7 @@ final class QRPayloadTests: XCTestCase {
         XCTAssertEqual(p.staticKey, k32)
         XCTAssertEqual(p.staticKey.count, 32)
         XCTAssertEqual(p.ephemeralHint, e32)
-        XCTAssertEqual(p.ephemeralHint.count, 32)
+        XCTAssertEqual(p.ephemeralHint?.count, 32)
         XCTAssertEqual(p.token, t16)
         XCTAssertEqual(p.token.count, 16)
         XCTAssertEqual(p.host, "host")
@@ -128,5 +128,61 @@ final class QRPayloadTests: XCTestCase {
         let url = "maverick://pair/v1?k=\(kStr)&t=\(tStr)&f=\(kFingerprint.lowercased())"
         let p = try QRPayload.parse(url)
         XCTAssertEqual(p.fingerprint, kFingerprint.lowercased())
+    }
+
+    // MARK: - Rejection tests
+
+    func testWrongLengthTIsRejected() {
+        // 8-byte token, not 16.
+        let shortT = Base64URL.encode(Data((0..<8).map { UInt8($0) }))
+        let url = "maverick://pair/v1?k=\(kStr)&t=\(shortT)"
+        XCTAssertThrowsError(try QRPayload.parse(url)) { err in
+            XCTAssertEqual(err as? QRPayloadError,
+                           .wrongKeyLength(field: "t", expected: 16, actual: 8))
+        }
+    }
+
+    func testWrongLengthEIsRejected() {
+        // 16-byte ephemeral hint, not 32.
+        let shortE = Base64URL.encode(Data((0..<16).map { UInt8($0) }))
+        let url = "maverick://pair/v1?k=\(kStr)&e=\(shortE)&t=\(tStr)"
+        XCTAssertThrowsError(try QRPayload.parse(url)) { err in
+            XCTAssertEqual(err as? QRPayloadError,
+                           .wrongKeyLength(field: "e", expected: 32, actual: 16))
+        }
+    }
+
+    func testInvalidBase64URLForKIsRejected() {
+        let url = "maverick://pair/v1?k=@@@&t=\(tStr)"
+        XCTAssertThrowsError(try QRPayload.parse(url)) { err in
+            XCTAssertEqual(err as? QRPayloadError, .badBase64URL("k"))
+        }
+    }
+
+    func testRendezvousPortZeroFallsBack() throws {
+        let url = "maverick://pair/v1?k=\(kStr)&t=\(tStr)&r=host%3A0"
+        let p = try QRPayload.parse(url)
+        XCTAssertEqual(p.host, "host")
+        XCTAssertEqual(p.port, 8765)
+    }
+
+    func testRendezvousPortTooLargeFallsBack() throws {
+        let url = "maverick://pair/v1?k=\(kStr)&t=\(tStr)&r=host%3A99999"
+        let p = try QRPayload.parse(url)
+        XCTAssertEqual(p.host, "host")
+        XCTAssertEqual(p.port, 8765)
+    }
+
+    func testRendezvousNonNumericPortFallsBack() throws {
+        let url = "maverick://pair/v1?k=\(kStr)&t=\(tStr)&r=host%3Aabc"
+        let p = try QRPayload.parse(url)
+        XCTAssertEqual(p.host, "host")
+        XCTAssertEqual(p.port, 8765)
+    }
+
+    func testDuplicateParamFirstWins() throws {
+        let url = "maverick://pair/v1?k=\(kStr)&t=\(tStr)&n=First&n=Second"
+        let p = try QRPayload.parse(url)
+        XCTAssertEqual(p.name, "First")
     }
 }
