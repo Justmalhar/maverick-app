@@ -54,6 +54,38 @@ final class ConnectionManager {
         openSocket()
     }
 
+    /// Adopt an already-open, already-handshaken `/pair` WebSocket as the live
+    /// session socket and route all traffic through the Noise transport.
+    ///
+    /// The `result.webSocketTask` is reused as-is (it carries the completed
+    /// handshake's transport keys via `result.transport`); it is NOT
+    /// reconnected. From here on, `send(ClientMessage)` and `onMessage` flow
+    /// encrypted with zero changes to call sites (SessionStore, AgentSessionStore…).
+    func connectPaired(_ result: PairingResult) {
+        // Tear down any prior plaintext session/delegate without cancelling the
+        // freshly handshaken paired task (which `disconnect()` would kill).
+        reconnectWorkItem?.cancel()
+        session?.invalidateAndCancel()
+        session = nil
+        delegateBox = nil
+
+        self.isPaired = true
+        self.transport = NoiseTransportAdapter(result.transport)
+
+        activeTaskId &+= 1
+        let myTaskId = activeTaskId
+
+        let adopted = result.webSocketTask
+        adopted.maximumMessageSize = 16 * 1024 * 1024
+        adopted.taskDescription = String(myTaskId)
+        task = adopted
+        // The handshake already completed over this socket, so it is open. The
+        // delegate's didOpen won't fire for an adopted task — mark connected and
+        // let the read loop's safety-net keep us there.
+        DispatchQueue.main.async { [weak self] in self?.state = .connected }
+        readLoop(taskId: myTaskId)
+    }
+
     func disconnect() {
         reconnectWorkItem?.cancel()
         task?.cancel(with: .normalClosure, reason: nil)
